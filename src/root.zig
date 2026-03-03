@@ -223,4 +223,6 @@ test {
     _ = @import("Renderer.zig");
     _ = @import("Value.zig");
     _ = @import("transform.zig");
+    _ = @import("fuzz.zig");
+    _ = @import("bench.zig");
 }
