@@ -1,105 +1,130 @@
 # Toupee
 
-A build-time HTML template engine written in Zig. Toupee processes custom `t-` prefixed elements to produce clean HTML output — template inheritance, slots, conditionals, loops, and transforms with no runtime dependency.
+*Seamless HTML templates, zero magic.*
 
-Designed to be embedded in static site generators. The caller provides templates, context data, and a resolver; toupee renders them.
+A build-time template engine in Zig. Templates are plain HTML with `<t-*>` elements for inheritance, slots, loops, conditionals, and transforms. No custom delimiters, no embedded language, no runtime. Feed it templates and data, get HTML back.
 
-## Usage
+## A Little Off-the-Top
+
+```html
+<t-extend template="base.html">
+<t-define name="content">
+  <h1><t-var name="site.title" /></h1>
+  <t-for post in posts sort="date" order="desc" limit="5" as loop>
+  <article>
+    <h2><a t-var:href="post.url"><t-var name="post.title" /></a></h2>
+    <p><t-var name="post.summary" transform="truncate:120" /></p>
+    <t-for tag in post.tags>
+    <span class="tag"><t-var name="tag" /></span>
+    </t-for>
+  </article>
+  <t-else />
+  <p>No posts yet.</p>
+  </t-for>
+</t-define>
+</t-extend>
+```
+
+That's a real template. Inheritance, nested loops, attribute binding, transforms, for-else -- all valid HTML.
+
+## Short Back & Sides
+
+Template:
+
+```html
+<t-for item in fruits>
+<li><t-var name="item.name" /> (<t-var name="item.color" transform="lower" />)</li>
+</t-for>
+```
+
+Zig:
 
 ```zig
 const toupee = @import("toupee");
 
-var resolver: toupee.Resolver = .{};
-try resolver.put(allocator, "base.html", base_template);
-
 var ctx: toupee.Context = .{};
-try ctx.putVar(allocator, "page.title", "Hello World");
-try ctx.putSlot(allocator, "", page_body);
+try ctx.putData(allocator, "fruits", .{ .list = &.{
+    .{ .map = /* { name: "Apple", color: "RED" } */ },
+    .{ .map = /* { name: "Lime", color: "GREEN" } */ },
+} });
 
-const html = try toupee.render(allocator, template, &ctx, &resolver);
-defer allocator.free(html);
+const html = try toupee.render(allocator, template, &ctx, &resolver, .{});
 ```
+
+Output:
+
+```html
+<li>Apple (red)</li>
+<li>Lime (green)</li>
+```
+
+## Why Toupee?
+
+- **Templates should look like HTML.** If your template isn't valid HTML structure, your tooling can't help you. Toupee uses custom elements (`<t-var>`, `<t-for>`, `<t-if>`) that sit naturally alongside real markup.
+
+- **Parsing and rendering are separate.** Parse once into a flat IR, cache it, render many times with different data. The IR is a `[]Node` tagged union slice -- contiguous memory, no pointer chasing, no GC.
+
+- **No embedded language.** Templates don't execute arbitrary code. Transforms handle formatting; conditionals handle branching; loops handle iteration. That's the whole language.
+
+- **Errors should help.** Source excerpts with line numbers, caret highlighting, typo suggestions via Levenshtein distance, and include stack traces. When something goes wrong, the error tells you where and why.
 
 ## Features
 
-- **Template inheritance** — `<t-extend>` chains with named slots and defaults
-- **Component inclusion** — `<t-include>` with attribute passing and body slots
-- **Variables** — `<t-var>` (escaped) and `<t-raw>` (unescaped) with default fallbacks
-- **Attribute binding** — `t-var:href="url"` binds variables to HTML attributes
-- **Control flow** — `<t-if>`/`<t-elif>`/`<t-else>` with exists, equals, not-equals, not-exists
-- **Iteration** — `<t-for>` with sort, order, limit, offset, and loop metadata
-- **Transforms** — `upper`, `lower`, `capitalize`, `trim`, `slugify`, `truncate`, `replace`, `default` (pipe-chained)
-- **Capture** — `<t-let>` renders content into a variable
-- **Comments** — `<t-comment>` strips content from output
-- **Pretty-printer** — optional `renderFormatted()` with 2-space indentation
+- **Template inheritance** -- `<t-extend>` with named `<t-slot>`/`<t-define>` pairs and defaults
+- **Components** -- `<t-include>` with attributes, body slots, and nested defines
+- **Variables** -- `<t-var>` (escaped) and `<t-raw>` (unescaped) with dot-path resolution
+- **Attribute binding** -- `<a t-var:href="post.url">` binds variables to HTML attributes
+- **Conditionals** -- `<t-if>` with `equals`, `contains`, `starts-with`, `ends-with`, `matches` (glob)
+- **Loops** -- `<t-for>` with sort, filter, limit/offset, `loop.first`/`loop.last`/`loop.length`, for-else
+- **Transforms** -- `upper`, `slugify`, `truncate:N`, `escape`, `url_encode`, `join`, `split`, and more (pipe-chained)
+- **Capture** -- `<t-let>` renders content into a scoped variable
+- **Strict mode** -- errors on undefined variables (default on, opt out per render)
 
-## Quick reference
+## Quick Start
 
-```html
-<!-- Inheritance -->
-<t-extend template="base.html">
-<t-define name="title">My Page</t-define>
-<t-define name="">
-  <p>Page body goes in the anonymous slot.</p>
-</t-define>
+```zig
+const toupee = @import("toupee");
 
-<!-- Variables -->
-<h1><t-var name="page.title" /></h1>
-<t-var name="missing">default content</t-var>
-<t-var name="title" transform="slugify" />
+// Engine caches parsed templates and manages transforms
+var engine = try toupee.Engine.init(allocator);
+defer engine.deinit();
 
-<!-- Attribute binding -->
-<a t-var:href="post.url"><t-var name="post.title" /></a>
+// Pre-parse and cache
+try engine.addTemplate("page.html", page_source);
+try engine.addTemplate("base.html", base_source);
 
-<!-- Components -->
-<t-include template="card.html" variant="featured">
-  <t-define name="title"><t-var name="card.title" /></t-define>
-  <p>Card body</p>
-</t-include>
+// Set up data
+var ctx: toupee.Context = .{};
+try ctx.putData(allocator, "title", .{ .string = "Hello" });
+defer ctx.deinit(allocator);
 
-<!-- Conditionals -->
-<t-if var="show_sidebar">
-  <aside>Sidebar</aside>
-<t-else />
-  <div>No sidebar</div>
-</t-if>
+// Templates available via include/extend resolve through the Resolver
+var resolver: toupee.Resolver = .{};
+try resolver.put(allocator, "base.html", base_source);
+defer resolver.deinit(allocator);
 
-<!-- Loops -->
-<t-for post in posts sort="date" order="desc" limit="5" as loop>
-  <article>
-    <span><t-var name="loop.number" /></span>
-    <h2><t-var name="post.title" /></h2>
-  </article>
-</t-for>
+// Render
+const html = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+defer allocator.free(html);
 ```
 
-## Context model
+Or skip the Engine for one-shot rendering:
 
-The caller populates a `Context` with four namespaces:
+```zig
+const html = try toupee.render(allocator, source, &ctx, &resolver, .{});
+```
 
-| Namespace | Type | Accessed via |
-| --- | --- | --- |
-| `vars` | string → string | `t-var`, `t-raw`, `t-if var=` |
-| `attrs` | string → string | `t-attr`, `t-if attr=` |
-| `slots` | string → string | `t-slot`, `t-if slot=` |
-| `collections` | string → Entry[] | `t-for` |
-
-All values are flat strings. Entry fields are accessed via dot notation in the loop item prefix (e.g. `post.title`).
-
-## Build and test
+## Build and Test
 
 ```
-zig build test    # 144 tests across 14 test suites + inline unit tests
-zig build         # build library
+zig build test    # over 400 tests (integration + unit)
+zig build bench   # parse/render benchmarks (ReleaseFast)
+zig build fuzz    # fuzz testing for parser and renderer
 ```
 
 ## Documentation
 
-- [Element reference](docs/reference.dj) — complete element and transform reference
-- [Getting started](docs/getting-started.dj) — tutorial walkthrough
-- [Architecture](docs/architecture.dj) — module design and extension guide
-- [AGENTS.md](AGENTS.md) — AI agent context
-
-## License
-
-MIT
+- **[Template Author Guide](docs/guide/)** -- getting started, variables, control flow, composition, transforms, patterns
+- **[Library API Reference](docs/api/)** -- Engine, Context, errors, integration
+- **[Contributor Guide](docs/contributing/)** -- architecture, adding elements/transforms, testing, code style
+- **[Element Reference](docs/reference.dj)** -- complete element and transform reference

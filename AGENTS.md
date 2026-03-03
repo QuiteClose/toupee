@@ -24,22 +24,22 @@ The IR is a flat `[]Node` tagged union slice (not a tree). Nesting is expressed 
 
 ## Module Map
 
-| File | Lines | Responsibility |
-| --- | --- | --- |
-| `root.zig` | 228 | Public API: `Engine`, `render()`, `renderFormatted()`, `RenderResult`, type re-exports |
-| `Parser.zig` | 1073 | Template source → `[]Node` IR. Single-pass recursive descent. |
-| `Renderer.zig` | 899 | `[]Node` IR + Context → output string. Visitor over the node array. |
-| `Node.zig` | 365 | IR type definitions: 13-variant tagged union + supporting structs |
-| `Context.zig` | 213 | `Context`, `Resolver`, `ErrorDetail`, `IncludeEntry`, `RenderError` |
-| `Value.zig` | 305 | `Value` tagged union (`string`, `boolean`, `integer`, `list`, `map`, `nil`), dot-path resolution |
-| `transform.zig` | 389 | `Registry`, `TransformFn`, 20 built-in transforms |
-| `html.zig` | 131 | Tag parsing, attribute extraction, HTML escaping |
-| `indent.zig` | 227 | Indentation propagation, common-indent stripping |
-| `format.zig` | 145 | Post-render HTML pretty-printer (2-space indent) |
-| `test_runner.zig` | 401 | `.test` file parser/runner with ErrorDetail assertions |
-| `bench.zig` | 145 | Performance benchmarks (parse, render, cached, pipeline) |
-| `fuzz.zig` | 54 | Fuzz targets for Parser and Renderer |
-| `main.zig` | 6 | CLI stub (not yet implemented) |
+| File | Responsibility |
+| --- | --- |
+| `root.zig` | Public API: `Engine`, `render()`, `renderFormatted()`, `RenderResult`, type re-exports |
+| `Parser.zig` | Template source → `[]Node` IR. Single-pass recursive descent. |
+| `Renderer.zig` | `[]Node` IR + Context → output string. Visitor over the node array. |
+| `Node.zig` | IR type definitions: tagged union + supporting structs |
+| `Context.zig` | `Context`, `Resolver`, `ErrorDetail`, `IncludeEntry`, `RenderError` |
+| `Value.zig` | `Value` tagged union (`string`, `boolean`, `integer`, `list`, `map`, `nil`), dot-path resolution |
+| `transform.zig` | `Registry`, `TransformFn`, built-in transforms |
+| `html.zig` | Tag parsing, attribute extraction, HTML escaping |
+| `indent.zig` | Indentation propagation, common-indent stripping |
+| `format.zig` | Post-render HTML pretty-printer (2-space indent) |
+| `test_runner.zig` | `.test` file parser/runner with ErrorDetail assertions |
+| `bench.zig` | Performance benchmarks (parse, render, cached, pipeline) |
+| `fuzz.zig` | Fuzz targets for Parser and Renderer |
+| `main.zig` | CLI stub (not yet implemented) |
 
 ## Public API (`root.zig`)
 
@@ -120,7 +120,7 @@ defer result.deinit();
 </t-for>
 ```
 
-### Transforms (20 built-in)
+### Transforms (built-in)
 
 Applied via `transform` attribute with pipe chaining:
 
@@ -184,7 +184,7 @@ External `.test` files in `test/`, loaded at runtime by `test_runner.zig`. HTML 
 
 Context JSON: `"data"` for variables (nested maps/lists/strings), `"templates"` for named templates available via include/extend.
 
-**296 integration test cases** across 15 `.test` files, plus **158 unit tests** across source modules. Total: **454 tests**.
+Over 400 tests across integration `.test` files and unit tests in source modules.
 
 ## Build Commands
 

@@ -38,12 +38,11 @@ pub fn main() !void {
 
     var ctx: toupee.Context = .{};
     defer ctx.deinit(a);
-    try ctx.putVar(a, "title", "Hello World");
+    try ctx.putData(a, "title", .{ .string = "Hello World" });
 
     var resolver: toupee.Resolver = .{};
-    defer resolver.deinit(a);
 
-    const html = try toupee.render(a, template, &ctx, &resolver);
+    const html = try toupee.render(a, template, &ctx, &resolver, .{});
     defer a.free(html);
 
     std.debug.print("{s}\n", .{html});
@@ -102,17 +101,24 @@ Reusable components are included with `<t-include>`:
 
 Attributes on the include tag (except `template`) are passed to the included template as `attrs`.
 
-== Collections and loops
+== Data and loops
 
-Populate collections for iteration:
+Data is structured using `Value` types -- strings, booleans, integers, lists, and maps:
 
 ```zig
-var entries = try a.alloc(toupee.Entry, 2);
-entries[0] = .{};
-try entries[0].values.put(a, "title", "First Post");
-entries[1] = .{};
-try entries[1].values.put(a, "title", "Second Post");
-try ctx.putCollection(a, "posts", entries);
+var posts = std.ArrayList(toupee.Value).init(a);
+defer posts.deinit();
+try posts.append(.{ .map = blk: {
+    var m: toupee.Value.Map = .{};
+    try m.put(a, "title", .{ .string = "First Post" });
+    break :blk m;
+} });
+try posts.append(.{ .map = blk: {
+    var m: toupee.Value.Map = .{};
+    try m.put(a, "title", .{ .string = "Second Post" });
+    break :blk m;
+} });
+try ctx.putData(a, "posts", .{ .list = posts.items });
 ```
 
 ```html
@@ -120,6 +126,8 @@ try ctx.putCollection(a, "posts", entries);
   <article><t-var name="post.title" /></article>
 </t-for>
 ```
+
+Variables use dot-path resolution: `post.title` resolves through the data hierarchy (post -> title).
 
 == Conditionals
 
@@ -152,7 +160,7 @@ Transforms are pipe-chained left to right.
 Use `renderFormatted` for indented HTML output:
 
 ```zig
-const formatted = try toupee.renderFormatted(a, template, &ctx, &resolver);
+const formatted = try toupee.renderFormatted(a, template, &ctx, &resolver, .{});
 defer a.free(formatted);
 ```
 
@@ -167,7 +175,7 @@ var err_detail: toupee.ErrorDetail = .{};
 var ctx: toupee.Context = .{};
 ctx.err_detail = &err_detail;
 
-const result = toupee.render(a, template, &ctx, &resolver) catch |err| {
+const result = toupee.render(a, template, &ctx, &resolver, .{}) catch |err| {
     std.debug.print("Error at line {d}, col {d}: {s}\n", .{
         err_detail.line, err_detail.column, err_detail.message,
     });

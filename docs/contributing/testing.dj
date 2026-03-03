@@ -160,7 +160,7 @@ Run with `zig build bench` (compiles with ReleaseFast).
 |------|----------|
 | `var.test` | `t-var`: escaping, defaults, transforms, dotted paths |
 | `raw.test` | `t-raw`: unescaped output, transforms |
-| `transform.test` | All 20 built-in transforms |
+| `transform.test` | All built-in transforms |
 | `conditional.test` | `t-if`, `t-elif`, `t-else`: equality, existence, nesting |
 | `loop.test` | `t-for`: lists, sort, limit/offset, metadata |
 | `slot.test` | `t-slot`, `t-define`: named slots, defaults |

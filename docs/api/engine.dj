@@ -11,7 +11,7 @@ var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 ```
 
-`init` registers all 20 built-in transforms. The engine owns its registry and cache; `deinit` frees all resources.
+`init` registers all built-in transforms. The engine owns its registry and cache; `deinit` frees all resources.
 
 ## Rendering raw source
 

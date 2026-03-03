@@ -1,6 +1,6 @@
 = Toupee Element Reference
 
-All template elements use the `t-` prefix. This prefix is a comptime constant in `Engine.zig`.
+All template elements use the `t-` prefix.
 
 == Template Inheritance
 
@@ -51,7 +51,7 @@ Insert a variable value with HTML escaping.
 <t-var name="title" transform="upper" />
 ```
 
-Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use flat dot notation --- `page.title` is a single key, not a nested lookup.
+Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use dot-path resolution --- `page.title` resolves through the data hierarchy (page -> title).
 
 === `<t-raw>`
 
@@ -89,7 +89,7 @@ Values are HTML-escaped.
 
 === `t-attr:attr`
 
-Bind an include attribute to an HTML attribute. Same semantics as `t-var:` but reads from `attrs` instead of `vars`.
+Bind an include attribute to an HTML attribute. Same semantics as `t-var:` but reads from `attrs` instead of data.
 
 ```
 <div t-attr:class="variant">content</div>
@@ -133,6 +133,10 @@ Conditional rendering based on variable, attribute, or slot existence/value.
 <t-if var="x" equals="hello">exact match</t-if>
 <t-if var="x" not-equals="hello">not equal</t-if>
 <t-if var="x" not-exists>truly missing (empty string counts as existing)</t-if>
+<t-if var="x" contains="needle">substring match</t-if>
+<t-if var="x" starts-with="/blog">prefix match</t-if>
+<t-if var="x" ends-with=".html">suffix match</t-if>
+<t-if var="x" matches="*.html">glob pattern match (* and ?)</t-if>
 <t-if attr="variant">has variant attribute</t-if>
 <t-if slot="sidebar">sidebar slot was defined</t-if>
 ```
@@ -169,11 +173,31 @@ Attributes:
 - `order="desc"` --- descending sort
 - `limit="N"` --- limit to N entries after sorting
 - `offset="N"` --- skip first N entries after sorting
-- `as alias` --- expose `alias.index` (0-based) and `alias.number` (1-based)
+- `as alias` --- expose loop metadata via `alias.*`
 
-Entry fields are accessed as `prefix.field` where `prefix` is the loop variable name.
+Loop metadata (available when `as` is used):
+
+- `alias.index` --- 0-based position
+- `alias.number` --- 1-based position
+- `alias.length` --- total number of items (after limit/offset)
+- `alias.first` --- `"true"` on the first iteration (absent otherwise)
+- `alias.last` --- `"true"` on the last iteration (absent otherwise)
+
+Entry fields are accessed as `prefix.field` where `prefix` is the loop variable name. Variables use dot-path resolution through the data hierarchy.
 
 Empty or missing collections render nothing (no error).
+
+=== For-else
+
+`<t-else />` inside `<t-for>` provides fallback content when the collection is empty or missing:
+
+```
+<t-for post in posts>
+  <article><t-var name="post.title" /></article>
+<t-else />
+  <p>No posts yet.</p>
+</t-for>
+```
 
 == Other Elements
 
@@ -188,41 +212,51 @@ Template-only comment. Content is stripped from output.
 
 Both block and self-closing forms are supported.
 
+=== `<t-debug />`
+
+Debug element. When `Options.debug` is `true`, renders a table of the current template context (all variables and their values). When debug is `false`, the element is silently stripped from output.
+
+```
+<t-debug />
+```
+
+Self-closing only.
+
 == Transforms
 
 Applied via `transform="name"` on `<t-var>`, `<t-raw>`, and `<t-let>`. Multiple transforms are pipe-chained: `transform="trim|lower|slugify"`.
 
-=== `upper`
+=== String transforms
 
-Convert to uppercase. No arguments.
+- `upper` --- convert to uppercase
+- `lower` --- convert to lowercase
+- `capitalize` --- title case (capitalise first letter of each word)
+- `trim` --- strip leading and trailing whitespace
+- `slugify` --- lowercase, replace non-alphanumeric with hyphens, collapse/strip hyphens
+- `truncate:N` --- truncate to N characters (no ellipsis)
+- `replace:from:to` --- replace all occurrences of `from` with `to`
+- `default:value` --- use `value` if the variable is empty or missing
+- `escape` --- HTML-escape (`&`, `<`, `>`, `"`, `'`)
+- `url_encode` --- percent-encode for URLs
+- `url_decode` --- decode percent-encoded strings
 
-=== `lower`
+=== Collection transforms
 
-Convert to lowercase. No arguments.
+- `join:separator` --- join a newline-separated list with `separator` (default: `, `)
+- `split:delimiter` --- split a string on `delimiter` (default: `,`) into newline-separated output
+- `first` --- first element (splits on newline or uses separator argument)
+- `last` --- last element (splits on newline or uses separator argument)
 
-=== `capitalize`
+=== Numeric transforms
 
-Title case: capitalize the first letter of each word. No arguments.
+- `length` --- string length as a number
+- `abs` --- absolute value
+- `floor` --- floor (round down)
+- `ceil` --- ceiling (round up)
 
-=== `trim`
+=== Other transforms
 
-Strip leading and trailing whitespace. No arguments.
-
-=== `slugify`
-
-Lowercase, replace non-alphanumeric characters with hyphens, collapse consecutive hyphens, strip leading/trailing hyphens. No arguments.
-
-=== `truncate:N`
-
-Truncate to N characters. No ellipsis. If the string is shorter than N, returns it unchanged.
-
-=== `replace:from:to`
-
-Replace all occurrences of `from` with `to`. Both arguments are required (use empty `to` to delete).
-
-=== `default:value`
-
-If the variable is empty or missing, use `value` instead.
+- `date` --- date pass-through (reserved for future formatting)
 
 == Errors
 
@@ -230,7 +264,7 @@ If the variable is empty or missing, use `value` instead.
 | --- | --- |
 | `MalformedElement` | Unclosed tag, missing required attribute, unknown transform |
 | `TemplateNotFound` | Referenced template not registered in Resolver |
-| `CircularReference` | Extend chain cycle or render depth > 50 |
+| `CircularReference` | Extend chain cycle or render depth exceeded |
 | `DuplicateSlotDefinition` | Same slot defined twice in one include body |
 | `UndefinedVariable` | Variable missing with no default body or default transform |
 | `OutOfMemory` | Allocator exhausted |
