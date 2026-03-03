@@ -169,8 +169,10 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
 
     var consumed: usize = tag_end + 1;
     var default_body: []const Node = &.{};
+    var has_body = false;
 
     if (!is_self_closing) {
+        has_body = true;
         const var_close = comptime closeTag("var");
         const raw_close = comptime closeTag("raw");
         const close_str: []const u8 = if (escape) var_close else raw_close;
@@ -180,7 +182,7 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
         consumed = tag_end + 1 + close_pos + close_str.len;
     }
 
-    const variable: N.Variable = .{ .name = name, .transform = transform, .default_body = default_body };
+    const variable: N.Variable = .{ .name = name, .transform = transform, .default_body = default_body, .has_body = has_body };
     try nodes.append(a, if (escape) .{ .variable = variable } else .{ .raw_variable = variable });
     return start + consumed;
 }
@@ -253,6 +255,7 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
     var consumed: usize = tag_end + 1;
     var defines: []const N.Define = &.{};
     var anonymous_body: []const Node = &.{};
+    var anonymous_body_source: []const u8 = "";
 
     if (!is_self_closing) {
         const include_close = comptime closeTag("include");
@@ -269,8 +272,10 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
                 const parts = try parseIncludeBody(a, body);
                 defines = parts.defines;
                 anonymous_body = parts.anonymous_body;
+                anonymous_body_source = parts.anonymous_body_source;
             } else {
                 anonymous_body = try parseContent(a, body);
+                anonymous_body_source = try a.dupe(u8, body);
             }
         }
     }
@@ -280,6 +285,7 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
         .attrs = attrs,
         .defines = defines,
         .anonymous_body = anonymous_body,
+        .anonymous_body_source = anonymous_body_source,
     } });
     return start + consumed;
 }
@@ -435,6 +441,7 @@ fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node)) Par
 const IncludeBodyParts = struct {
     defines: []const N.Define,
     anonymous_body: []const Node,
+    anonymous_body_source: []const u8,
 };
 
 fn parseIncludeBody(a: Allocator, body: []const u8) ParseError!IncludeBodyParts {
@@ -463,7 +470,8 @@ fn parseIncludeBody(a: Allocator, body: []const u8) ParseError!IncludeBodyParts 
                 return error.MalformedElement;
             const raw = rest[content_start .. content_start + close];
             const stripped = try indent_mod.stripCommonIndent(a, raw);
-            try defines.append(a, .{ .name = name, .body = try parseContent(a, stripped.slice) });
+            const raw_source = try a.dupe(u8, stripped.slice);
+            try defines.append(a, .{ .name = name, .body = try parseContent(a, stripped.slice), .raw_source = raw_source });
             i += content_start + close + define_close.len;
         } else {
             try anon_parts.append(a, body[i]);
@@ -476,10 +484,15 @@ fn parseIncludeBody(a: Allocator, body: []const u8) ParseError!IncludeBodyParts 
         try parseContent(a, trimmed)
     else
         &.{};
+    const anonymous_body_source: []const u8 = if (trimmed.len > 0)
+        try a.dupe(u8, trimmed)
+    else
+        "";
 
     return .{
         .defines = try defines.toOwnedSlice(a),
         .anonymous_body = anonymous_body,
+        .anonymous_body_source = anonymous_body_source,
     };
 }
 
@@ -504,7 +517,8 @@ fn parseDefineBlocks(a: Allocator, input: []const u8) ParseError![]const N.Defin
                 return error.MalformedElement;
             const raw = rest[content_start .. content_start + close];
             const stripped = try indent_mod.stripCommonIndent(a, raw);
-            try defines.append(a, .{ .name = name, .body = try parseContent(a, stripped.slice) });
+            const raw_source = try a.dupe(u8, stripped.slice);
+            try defines.append(a, .{ .name = name, .body = try parseContent(a, stripped.slice), .raw_source = raw_source });
             i += content_start + close + define_close.len;
         } else {
             i += 1;

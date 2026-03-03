@@ -5,7 +5,7 @@ const Context = Ctx.Context;
 const Entry = Ctx.Entry;
 const Resolver = Ctx.Resolver;
 const RenderError = Ctx.RenderError;
-const Engine = @import("Engine.zig");
+const toupee = @import("root.zig");
 
 const TestResults = struct {
     passed: usize = 0,
@@ -85,7 +85,7 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
     }
 
     if (tc.expected_error) |err_name| {
-        const result = Engine.render(a, template_input, &ctx, &resolver);
+        const result = toupee.render(a, template_input, &ctx, &resolver);
         if (result) |_| {
             std.debug.print("    FAIL [{s}]: expected error '{s}' but got success\n", .{ tc.name, err_name });
             return error.TestExpectedError;
@@ -97,7 +97,7 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
             }
         }
     } else if (tc.expected_output) |expected| {
-        const result = Engine.render(a, template_input, &ctx, &resolver) catch |err| {
+        const result = toupee.render(a, template_input, &ctx, &resolver) catch |err| {
             std.debug.print("    FAIL [{s}]: unexpected error: {s}\n", .{ tc.name, @errorName(err) });
             return err;
         };

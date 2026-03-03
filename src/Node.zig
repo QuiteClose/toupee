@@ -19,6 +19,7 @@ pub const Variable = struct {
     name: []const u8,
     transform: []const TransformStep = &.{},
     default_body: []const Node = &.{},
+    has_body: bool = false,
 };
 
 pub const LetBinding = struct {
@@ -41,6 +42,7 @@ pub const Include = struct {
     attrs: []const Attr = &.{},
     defines: []const Define = &.{},
     anonymous_body: []const Node = &.{},
+    anonymous_body_source: []const u8 = "",
 };
 
 pub const Extend = struct {
@@ -112,6 +114,7 @@ pub const Attr = struct {
 pub const Define = struct {
     name: []const u8,
     body: []const Node,
+    raw_source: []const u8 = "",
 };
 
 test "text node" {

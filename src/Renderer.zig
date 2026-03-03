@@ -78,9 +78,11 @@ fn renderVariable(
 
     if (ctx.getVar(v.name)) |val| {
         value = val;
-    } else if (v.default_body.len > 0) {
-        value = try renderNodes(a, v.default_body, ctx, resolver, depth);
-        value_allocated = true;
+    } else if (v.has_body) {
+        if (v.default_body.len > 0) {
+            value = try renderNodes(a, v.default_body, ctx, resolver, depth);
+            value_allocated = true;
+        }
     } else if (v.transform.len > 0 and hasDefaultTransform(v.transform)) {
         // default transform will provide the value
     } else {
@@ -164,21 +166,12 @@ fn renderInclude(
 
     var child_slots: std.StringArrayHashMapUnmanaged([]const u8) = .{};
     defer child_slots.deinit(a);
-    var slot_allocs: std.ArrayList([]const u8) = .{};
-    defer {
-        for (slot_allocs.items) |s| a.free(s);
-        slot_allocs.deinit(a);
-    }
 
     for (inc.defines) |def| {
-        const rendered = try renderNodes(a, def.body, ctx, resolver, depth);
-        try slot_allocs.append(a, rendered);
-        try child_slots.put(a, def.name, rendered);
+        try child_slots.put(a, def.name, def.raw_source);
     }
-    if (inc.anonymous_body.len > 0) {
-        const rendered = try renderNodes(a, inc.anonymous_body, ctx, resolver, depth);
-        try slot_allocs.append(a, rendered);
-        try child_slots.put(a, "", rendered);
+    if (inc.anonymous_body_source.len > 0) {
+        try child_slots.put(a, "", inc.anonymous_body_source);
     }
 
     var inc_attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{};
@@ -212,19 +205,12 @@ fn renderExtend(
 ) RenderError!void {
     var slots: std.StringArrayHashMapUnmanaged([]const u8) = .{};
     defer slots.deinit(a);
-    var slot_allocs: std.ArrayList([]const u8) = .{};
-    defer {
-        for (slot_allocs.items) |s| a.free(s);
-        slot_allocs.deinit(a);
-    }
 
     var sit = ctx.slots.iterator();
     while (sit.next()) |entry| try slots.put(a, entry.key_ptr.*, entry.value_ptr.*);
 
     for (ext.defines) |def| {
-        const rendered = try renderNodes(a, def.body, ctx, resolver, depth);
-        try slot_allocs.append(a, rendered);
-        try slots.put(a, def.name, rendered);
+        try slots.put(a, def.name, def.raw_source);
     }
 
     var visited: std.StringArrayHashMapUnmanaged(void) = .{};
@@ -264,9 +250,7 @@ fn renderExtend(
 
         for (parent_ext.defines) |def| {
             if (!slots.contains(def.name)) {
-                const rendered = try renderNodes(a, def.body, ctx, resolver, depth);
-                try slot_allocs.append(a, rendered);
-                try slots.put(a, def.name, rendered);
+                try slots.put(a, def.name, def.raw_source);
             }
         }
 
@@ -590,7 +574,7 @@ test "render undefined variable is error" {
 
 test "render variable with default body" {
     const default_body = [_]Node{.{ .text = "Fallback" }};
-    const nodes = [_]Node{.{ .variable = .{ .name = "missing", .default_body = &default_body } }};
+    const nodes = [_]Node{.{ .variable = .{ .name = "missing", .default_body = &default_body, .has_body = true } }};
     var ctx: Context = .{};
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, &resolver);
