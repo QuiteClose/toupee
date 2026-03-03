@@ -32,4 +32,5 @@ test {
     _ = @import("Node.zig");
     _ = @import("Parser.zig");
     _ = @import("Renderer.zig");
+    _ = @import("Value.zig");
 }
