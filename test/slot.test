@@ -59,3 +59,46 @@
 <!-- context -->
 <!-- out -->
 []
+
+<!-- test: multiple named slots -->
+<!-- in:layout.html -->
+<head><t-slot name="head" /></head><nav><t-slot name="nav" /></nav><main><t-slot /></main><footer><t-slot name="footer" /></footer>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="head"><title>Test</title></t-define>
+<t-define name="nav">nav links</t-define>
+<t-define name="">body content</t-define>
+<t-define name="footer">copyright</t-define>
+<!-- context -->
+<!-- out -->
+<head><title>Test</title></head><nav>nav links</nav><main>body content</main><footer>copyright</footer>
+
+<!-- test: slot with complex default -->
+<!-- in:layout.html -->
+<aside><t-slot name="sidebar"><p>Default sidebar</p><ul><li>Item 1</li></ul></t-slot></aside>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="">main</t-define>
+<!-- context -->
+<!-- out -->
+<aside><p>Default sidebar</p><ul><li>Item 1</li></ul></aside>
+
+<!-- test: slot inside conditional -->
+<!-- in:layout.html -->
+<t-if var="show"><t-slot name="extra" /></t-if>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="extra">extra content</t-define>
+<!-- context -->
+{"data": {"show": "yes"}}
+<!-- out -->
+extra content
+
+<!-- test: slot inside conditional hidden -->
+<!-- in:layout.html -->
+<t-if var="show"><t-slot name="extra" /></t-if>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="extra">extra content</t-define>
+<!-- context -->
+<!-- out -->

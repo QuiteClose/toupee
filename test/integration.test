@@ -77,3 +77,71 @@
 {"data": {"content": "<p>Rich <em>content</em></p>"}}
 <!-- out -->
 <div><p>Rich <em>content</em></p></div>
+
+<!-- test: full page with header nav content footer -->
+<!-- in:base.html -->
+<html><head><title><t-var name="site.title" /></title></head><body><header><t-slot name="header" /></header><main><t-slot /></main><footer><t-slot name="footer" /></footer></body></html>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="header"><nav><t-for link in nav><a><t-var name="link.label" /></a></t-for></nav></t-define>
+<t-define name=""><h1><t-var name="page.title" /></h1><t-raw name="page.body" /></t-define>
+<t-define name="footer"><p>&copy; <t-var name="site.title" /></p></t-define>
+<!-- context -->
+{"data": {"site": {"title": "MySite"}, "page": {"title": "Home", "body": "<p>Welcome</p>"}, "nav": [{"label": "Home"}, {"label": "About"}]}}
+<!-- out -->
+<html><head><title>MySite</title></head><body><header><nav><a>Home</a><a>About</a></nav></header><main><h1>Home</h1><p>Welcome</p></main><footer><p>&copy; MySite</p></footer></body></html>
+
+<!-- test: card grid with loops -->
+<!-- in:card.html -->
+<div class="card"><h2><t-attr name="title" /></h2><t-slot /></div>
+<!-- in -->
+<t-for post in posts><t-include template="card.html" title="Post"><p><t-var name="post.summary" /></p></t-include></t-for>
+<!-- context -->
+{"data": {"posts": [{"summary": "First post"}, {"summary": "Second post"}]}}
+<!-- out -->
+<div class="card"><h2>Post</h2><p>First post</p></div><div class="card"><h2>Post</h2><p>Second post</p></div>
+
+<!-- test: nav with conditional active state -->
+<!-- in:nav-item.html -->
+<a t-attr:class="class"><t-attr name="label" /></a>
+<!-- in -->
+<nav><t-for link in nav><t-if var="link.active"><t-include template="nav-item.html" label="Active" class="active" /><t-else /><t-include template="nav-item.html" label="Normal" class="link" /></t-if></t-for></nav>
+<!-- context -->
+{"data": {"nav": [{"active": "yes"}, {}, {"active": "yes"}]}}
+<!-- out -->
+<nav><a class="active">Active</a><a class="link">Normal</a><a class="active">Active</a></nav>
+
+<!-- test: computed variable used multiple times -->
+<!-- in -->
+<t-let name="slug" transform="slugify"><t-var name="title" /></t-let><a href="/<t-var name="slug" />/"><t-var name="title" /></a> (<t-var name="slug" />)
+<!-- context -->
+{"data": {"title": "My Blog Post"}}
+<!-- out -->
+<a href="/my-blog-post/">My Blog Post</a> (my-blog-post)
+
+<!-- test: many sequential elements -->
+<!-- in -->
+<t-var name="a" /><t-var name="b" /><t-var name="c" /><t-var name="d" /><t-var name="e" />
+<!-- context -->
+{"data": {"a": "1", "b": "2", "c": "3", "d": "4", "e": "5"}}
+<!-- out -->
+12345
+
+<!-- test: nested include with attrs passing through -->
+<!-- in:inner.html -->
+<span t-attr:class="type"><t-attr name="label" /></span>
+<!-- in:outer.html -->
+<div><t-include template="inner.html" type="badge" label="Hello" /></div>
+<!-- in -->
+<t-include template="outer.html" />
+<!-- context -->
+<!-- out -->
+<div><span class="badge">Hello</span></div>
+
+<!-- test: mixed escaping in realistic template -->
+<!-- in -->
+<a href="/search?q=<t-var name="query" />" title="Search for <t-var name="query" />"><t-var name="query" /></a>
+<!-- context -->
+{"data": {"query": "Tom & Jerry"}}
+<!-- out -->
+<a href="/search?q=Tom &amp; Jerry" title="Search for Tom &amp; Jerry">Tom &amp; Jerry</a>

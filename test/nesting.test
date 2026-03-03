@@ -84,3 +84,60 @@ deep
 {"data": {"items": [{"name": "hello"}, {"name": "world"}]}}
 <!-- out -->
 HELLO,WORLD,
+
+<!-- test: triple nested for loops -->
+<!-- in -->
+<t-for a in as><t-for b in bs><t-for c in cs><t-var name="a.v" /><t-var name="b.v" /><t-var name="c.v" />,</t-for></t-for></t-for>
+<!-- context -->
+{"data": {"as": [{"v": "1"}], "bs": [{"v": "2"}], "cs": [{"v": "3"}, {"v": "4"}]}}
+<!-- out -->
+123,124,
+
+<!-- test: for-if-include nesting -->
+<!-- in:tag.html -->
+[<t-attr name="label" />]
+<!-- in -->
+<t-for item in items><t-if var="item.active"><t-include template="tag.html" label="active" /></t-if></t-for>
+<!-- context -->
+{"data": {"items": [{"active": "yes"}, {}, {"active": "yes"}]}}
+<!-- out -->
+[active][active]
+
+<!-- test: extend with for and if -->
+<!-- in:base.html -->
+<main><t-slot /></main>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name=""><t-for item in items><t-if var="item.show"><t-var name="item.name" />,</t-if></t-for></t-define>
+<!-- context -->
+{"data": {"items": [{"name": "A", "show": "1"}, {"name": "B"}, {"name": "C", "show": "1"}]}}
+<!-- out -->
+<main>A,C,</main>
+
+<!-- test: include with let and for -->
+<!-- in:comp.html -->
+<t-let name="prefix">item</t-let><t-for x in items><t-var name="prefix" />:<t-var name="x.name" />,</t-for>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- context -->
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}}
+<!-- out -->
+item:A,item:B,
+
+<!-- test: deeply nested conditionals with else -->
+<!-- in -->
+<t-if var="a"><t-if var="b"><t-if var="c">abc<t-else />ab</t-if><t-else />a</t-if><t-else />none</t-if>
+<!-- context -->
+{"data": {"a": "1", "b": "1"}}
+<!-- out -->
+ab
+
+<!-- test: loop with include with conditional -->
+<!-- in:badge.html -->
+<t-if attr="type" equals="special"><strong><t-attr name="label" /></strong><t-else /><span><t-attr name="label" /></span></t-if>
+<!-- in -->
+<t-for item in items><t-include template="badge.html" type="special" label="tag" /></t-for>
+<!-- context -->
+{"data": {"items": [{"x": "1"}, {"x": "2"}]}}
+<!-- out -->
+<strong>tag</strong><strong>tag</strong>

@@ -158,3 +158,81 @@ both
 <!-- in -->
 <t-elif var="x" />
 <!-- error: MalformedElement -->
+
+<!-- test: if with boolean true -->
+<!-- in -->
+<t-if var="flag">yes</t-if>
+<!-- context -->
+{"data": {"flag": true}}
+<!-- out -->
+yes
+
+<!-- test: if with boolean false still exists -->
+<!-- in -->
+<t-if var="flag">exists<t-else />missing</t-if>
+<!-- context -->
+{"data": {"flag": false}}
+<!-- out -->
+exists
+
+<!-- test: if with boolean true -->
+<!-- in -->
+<t-if var="flag">exists</t-if>
+<!-- context -->
+{"data": {"flag": true}}
+<!-- out -->
+exists
+
+<!-- test: if with dotted path -->
+<!-- in -->
+<t-if var="page.active">active</t-if>
+<!-- context -->
+{"data": {"page": {"active": "yes"}}}
+<!-- out -->
+active
+
+<!-- test: if with dotted path missing -->
+<!-- in -->
+<t-if var="page.active">active<t-else />inactive</t-if>
+<!-- context -->
+{"data": {"page": {}}}
+<!-- out -->
+inactive
+
+<!-- test: multiple elif branches -->
+<!-- in -->
+<t-if var="a">A<t-elif var="b" />B<t-elif var="c" />C<t-elif var="d" />D<t-else />none</t-if>
+<!-- context -->
+{"data": {"c": "yes"}}
+<!-- out -->
+C
+
+<!-- test: multiple elif all false -->
+<!-- in -->
+<t-if var="a">A<t-elif var="b" />B<t-elif var="c" />C<t-else />none</t-if>
+<!-- out -->
+none
+
+<!-- test: if equals with dotted path -->
+<!-- in -->
+<t-if var="page.type" equals="post">blog<t-else />page</t-if>
+<!-- context -->
+{"data": {"page": {"type": "post"}}}
+<!-- out -->
+blog
+
+<!-- test: nested if-else combination -->
+<!-- in -->
+<t-if var="a"><t-if var="b">both<t-else />only-a</t-if><t-else />neither</t-if>
+<!-- context -->
+{"data": {"a": "1"}}
+<!-- out -->
+only-a
+
+<!-- test: if with content between branches -->
+<!-- in -->
+<t-if var="x">before<t-else />after</t-if>
+<!-- context -->
+{"data": {"x": "yes"}}
+<!-- out -->
+before

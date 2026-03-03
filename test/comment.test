@@ -27,3 +27,26 @@ abc
 <p>Hello</p><t-comment>secret</t-comment><p>World</p>
 <!-- out -->
 <p>Hello</p><p>World</p>
+
+<!-- test: comment inside for loop -->
+<!-- in -->
+<t-for item in items><t-comment>debug: item</t-comment><t-var name="item.name" />,</t-for>
+<!-- context -->
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}}
+<!-- out -->
+A,B,
+
+<!-- test: comment inside include -->
+<!-- in:comp.html -->
+<t-comment>component header</t-comment><p>content</p>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- context -->
+<!-- out -->
+<p>content</p>
+
+<!-- test: empty comment -->
+<!-- in -->
+before<t-comment></t-comment>after
+<!-- out -->
+beforeafter

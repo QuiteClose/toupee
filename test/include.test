@@ -86,3 +86,62 @@
 {"data": {"page": {"title": "My Page"}}}
 <!-- out -->
 <h1>My Page</h1>
+
+<!-- test: deeply nested includes -->
+<!-- in:inner.html -->
+<span>inner</span>
+<!-- in:middle.html -->
+<div><t-include template="inner.html" /></div>
+<!-- in:outer.html -->
+<section><t-include template="middle.html" /></section>
+<!-- in -->
+<t-include template="outer.html" />
+<!-- context -->
+<!-- out -->
+<section><div><span>inner</span></div></section>
+
+<!-- test: include with conditional inside -->
+<!-- in:comp.html -->
+<t-if attr="show">visible<t-else />hidden</t-if>
+<!-- in -->
+<t-include template="comp.html" show="yes" />
+<!-- context -->
+<!-- out -->
+visible
+
+<!-- test: include with loop inside -->
+<!-- in:list.html -->
+<t-for item in items><t-var name="item.name" />,</t-for>
+<!-- in -->
+<t-include template="list.html" />
+<!-- context -->
+{"data": {"items": [{"name": "X"}, {"name": "Y"}]}}
+<!-- out -->
+X,Y,
+
+<!-- test: include with let variable -->
+<!-- in:comp.html -->
+<t-let name="label" transform="upper"><t-attr name="text" /></t-let><t-var name="label" />
+<!-- in -->
+<t-include template="comp.html" text="hello" />
+<!-- context -->
+<!-- out -->
+HELLO
+
+<!-- test: self-closing include with no attrs -->
+<!-- in:comp.html -->
+<p>static</p>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- context -->
+<!-- out -->
+<p>static</p>
+
+<!-- test: include with many attributes -->
+<!-- in:comp.html -->
+<t-attr name="a" />-<t-attr name="b" />-<t-attr name="c" />
+<!-- in -->
+<t-include template="comp.html" a="1" b="2" c="3" />
+<!-- context -->
+<!-- out -->
+1-2-3

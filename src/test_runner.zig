@@ -28,6 +28,10 @@ const TestCase = struct {
     context_json: ?[]const u8 = null,
     expected_output: ?[]const u8 = null,
     expected_error: ?[]const u8 = null,
+    expected_error_line: ?usize = null,
+    expected_error_column: ?usize = null,
+    expected_error_kind: ?[]const u8 = null,
+    expected_error_message: ?[]const u8 = null,
 };
 
 const Template = struct {
@@ -85,6 +89,11 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
     }
 
     if (tc.expected_error) |err_name| {
+        var err_detail: Ctx.ErrorDetail = .{};
+        const has_detail = tc.expected_error_line != null or tc.expected_error_column != null or
+            tc.expected_error_kind != null or tc.expected_error_message != null;
+        if (has_detail) ctx.err_detail = &err_detail;
+
         const result = toupee.render(a, template_input, &ctx, &resolver, .{});
         if (result) |_| {
             std.debug.print("    FAIL [{s}]: expected error '{s}' but got success\n", .{ tc.name, err_name });
@@ -95,6 +104,7 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
                 std.debug.print("    FAIL [{s}]: expected error '{s}' but got '{s}'\n", .{ tc.name, err_name, actual_name });
                 return error.TestWrongError;
             }
+            if (has_detail) try checkErrorDetail(tc, &err_detail);
         }
     } else if (tc.expected_output) |expected| {
         const result = toupee.render(a, template_input, &ctx, &resolver, .{}) catch |err| {
@@ -111,6 +121,34 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
                 result,
             });
             return error.TestUnexpectedResult;
+        }
+    }
+}
+
+fn checkErrorDetail(tc: *const TestCase, ed: *const Ctx.ErrorDetail) !void {
+    if (tc.expected_error_line) |exp| {
+        if (ed.line != exp) {
+            std.debug.print("    FAIL [{s}]: expected error-line {d} but got {d}\n", .{ tc.name, exp, ed.line });
+            return error.TestDetailMismatch;
+        }
+    }
+    if (tc.expected_error_column) |exp| {
+        if (ed.column != exp) {
+            std.debug.print("    FAIL [{s}]: expected error-column {d} but got {d}\n", .{ tc.name, exp, ed.column });
+            return error.TestDetailMismatch;
+        }
+    }
+    if (tc.expected_error_kind) |exp| {
+        const actual = @tagName(ed.kind);
+        if (!std.mem.eql(u8, actual, exp)) {
+            std.debug.print("    FAIL [{s}]: expected error-kind '{s}' but got '{s}'\n", .{ tc.name, exp, actual });
+            return error.TestDetailMismatch;
+        }
+    }
+    if (tc.expected_error_message) |exp| {
+        if (!std.mem.eql(u8, ed.message, exp)) {
+            std.debug.print("    FAIL [{s}]: expected error-message '{s}' but got '{s}'\n", .{ tc.name, exp, ed.message });
+            return error.TestDetailMismatch;
         }
     }
 }
@@ -165,6 +203,30 @@ fn parseTestCases(a: Allocator, content: []const u8, cases: *std.ArrayListUnmana
                 c.expected_error = trimmed[after .. after + end];
             }
             section = .none;
+        } else if (std.mem.startsWith(u8, trimmed, "<!-- error-line: ")) {
+            if (current) |c| {
+                const after = "<!-- error-line: ".len;
+                const end = std.mem.indexOf(u8, trimmed[after..], " -->") orelse trimmed.len - after;
+                c.expected_error_line = std.fmt.parseInt(usize, trimmed[after .. after + end], 10) catch null;
+            }
+        } else if (std.mem.startsWith(u8, trimmed, "<!-- error-column: ")) {
+            if (current) |c| {
+                const after = "<!-- error-column: ".len;
+                const end = std.mem.indexOf(u8, trimmed[after..], " -->") orelse trimmed.len - after;
+                c.expected_error_column = std.fmt.parseInt(usize, trimmed[after .. after + end], 10) catch null;
+            }
+        } else if (std.mem.startsWith(u8, trimmed, "<!-- error-kind: ")) {
+            if (current) |c| {
+                const after = "<!-- error-kind: ".len;
+                const end = std.mem.indexOf(u8, trimmed[after..], " -->") orelse trimmed.len - after;
+                c.expected_error_kind = trimmed[after .. after + end];
+            }
+        } else if (std.mem.startsWith(u8, trimmed, "<!-- error-message: ")) {
+            if (current) |c| {
+                const after = "<!-- error-message: ".len;
+                const end = std.mem.indexOf(u8, trimmed[after..], " -->") orelse trimmed.len - after;
+                c.expected_error_message = trimmed[after .. after + end];
+            }
         }
 
         i = if (line_end < content.len) line_end + 1 else content.len;
@@ -302,6 +364,7 @@ const test_file_names = [_][]const u8{
     "nesting.test",
     "error.test",
     "integration.test",
+    "edge.test",
 };
 
 test "toupee test suite" {

@@ -55,3 +55,36 @@
 {"data": {"url": "/home"}}
 <!-- out -->
 <a href="/home" class="fancy">link</a>
+
+<!-- test: bind with dotted path -->
+<!-- in -->
+<a t-var:href="page.url">link</a>
+<!-- context -->
+{"data": {"page": {"url": "/about"}}}
+<!-- out -->
+<a href="/about">link</a>
+
+<!-- test: bind with empty string value -->
+<!-- in -->
+<div t-var:class="cls">content</div>
+<!-- context -->
+{"data": {"cls": ""}}
+<!-- out -->
+<div class="">content</div>
+
+<!-- test: bind preserves other attributes -->
+<!-- in -->
+<a href="/static" t-var:title="tip">link</a>
+<!-- context -->
+{"data": {"tip": "hover text"}}
+<!-- out -->
+<a href="/static" title="hover text">link</a>
+
+<!-- test: t-attr default when missing -->
+<!-- in:comp.html -->
+<div t-attr:class="variant">content</div>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- context -->
+<!-- out -->
+<div>content</div>

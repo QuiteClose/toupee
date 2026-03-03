@@ -66,3 +66,50 @@
 <!-- context -->
 <!-- out -->
 <head><title>My Page</title></head><body><p>Body</p></body>
+
+<!-- test: three-level chain with vars -->
+<!-- in:base.html -->
+<html><t-slot name="body" /></html>
+<!-- in:page.html -->
+<t-extend template="base.html">
+<t-define name="body"><body><t-slot name="content" /></body></t-define>
+<!-- in -->
+<t-extend template="page.html">
+<t-define name="content"><p><t-var name="title" /></p></t-define>
+<!-- context -->
+{"data": {"title": "Hello"}}
+<!-- out -->
+<html><body><p>Hello</p></body></html>
+
+<!-- test: extend with conditional slot content -->
+<!-- in:base.html -->
+<div><t-slot /></div>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name=""><t-if var="show">visible<t-else />hidden</t-if></t-define>
+<!-- context -->
+<!-- out -->
+<div>hidden</div>
+
+<!-- test: extend with loop in slot -->
+<!-- in:base.html -->
+<ul><t-slot /></ul>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name=""><t-for item in items><li><t-var name="item.name" /></li></t-for></t-define>
+<!-- context -->
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}}
+<!-- out -->
+<ul><li>A</li><li>B</li></ul>
+
+<!-- test: extend with include in slot -->
+<!-- in:base.html -->
+<div><t-slot /></div>
+<!-- in:tag.html -->
+<span><t-attr name="label" /></span>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name=""><t-include template="tag.html" label="hello" /></t-define>
+<!-- context -->
+<!-- out -->
+<div><span>hello</span></div>

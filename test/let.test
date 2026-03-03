@@ -40,3 +40,37 @@ new
 <!-- context -->
 <!-- out -->
 inner
+
+<!-- test: let with chained transforms -->
+<!-- in -->
+<t-let name="result" transform="trim|upper|slugify">  Hello World!  </t-let><t-var name="result" />
+<!-- out -->
+hello-world
+
+<!-- test: let capturing loop output -->
+<!-- in -->
+<t-let name="list"><t-for item in items><t-var name="item.name" />,</t-for></t-let>List: <t-var name="list" />
+<!-- context -->
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}}
+<!-- out -->
+List: A,B,
+
+<!-- test: let capturing conditional output -->
+<!-- in -->
+<t-let name="msg"><t-if var="x">yes<t-else />no</t-if></t-let><t-var name="msg" />
+<!-- context -->
+{"data": {"x": "1"}}
+<!-- out -->
+yes
+
+<!-- test: let with empty body -->
+<!-- in -->
+<t-let name="empty"></t-let>[<t-var name="empty" />]
+<!-- out -->
+[]
+
+<!-- test: let overrides for subsequent use -->
+<!-- in -->
+<t-let name="x">first</t-let><t-var name="x" /> <t-let name="x">second</t-let><t-var name="x" />
+<!-- out -->
+first second

@@ -1,0 +1,191 @@
+<!-- test: empty template -->
+<!-- in -->
+
+<!-- out -->
+
+<!-- test: whitespace-only template -->
+<!-- in -->
+   
+<!-- out -->
+
+<!-- test: template with only text -->
+<!-- in -->
+Hello, World! This is plain text with no template elements.
+<!-- out -->
+Hello, World! This is plain text with no template elements.
+
+<!-- test: template with only html -->
+<!-- in -->
+<div><p>Just HTML</p></div>
+<!-- out -->
+<div><p>Just HTML</p></div>
+
+<!-- test: template with html entities -->
+<!-- in -->
+&amp; &lt; &gt; &quot;
+<!-- out -->
+&amp; &lt; &gt; &quot;
+
+<!-- test: unicode in variable values -->
+<!-- in -->
+<t-var name="greeting" />
+<!-- context -->
+{"data": {"greeting": "こんにちは世界"}}
+<!-- out -->
+こんにちは世界
+
+<!-- test: emoji in variable values -->
+<!-- in -->
+<t-var name="mood" />
+<!-- context -->
+{"data": {"mood": "happy 😀"}}
+<!-- out -->
+happy 😀
+
+<!-- test: very long variable value -->
+<!-- in -->
+<t-var name="long" />
+<!-- context -->
+{"data": {"long": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"}}
+<!-- out -->
+abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz
+
+<!-- test: self-closing tag with extra spaces -->
+<!-- in -->
+<t-var   name="x"   />
+<!-- context -->
+{"data": {"x": "ok"}}
+<!-- out -->
+ok
+
+<!-- test: nested empty slots -->
+<!-- in:outer.html -->
+<div><t-slot name="a" /><t-slot name="b" /><t-slot /></div>
+<!-- in -->
+<t-extend template="outer.html">
+<t-define name="">only body</t-define>
+<!-- context -->
+<!-- out -->
+<div>only body</div>
+
+<!-- test: deeply nested conditionals (5 levels) -->
+<!-- in -->
+<t-if var="a"><t-if var="b"><t-if var="c"><t-if var="d"><t-if var="e">deep</t-if></t-if></t-if></t-if></t-if>
+<!-- context -->
+{"data": {"a": "1", "b": "2", "c": "3", "d": "4", "e": "5"}}
+<!-- out -->
+deep
+
+<!-- test: many sequential vars -->
+<!-- in -->
+<t-var name="a" /> <t-var name="b" /> <t-var name="c" /> <t-var name="d" /> <t-var name="e" /> <t-var name="f" /> <t-var name="g" /> <t-var name="h" />
+<!-- context -->
+{"data": {"a": "1", "b": "2", "c": "3", "d": "4", "e": "5", "f": "6", "g": "7", "h": "8"}}
+<!-- out -->
+1 2 3 4 5 6 7 8
+
+<!-- test: variable name with hyphens -->
+<!-- in -->
+<t-var name="my-var" />
+<!-- context -->
+{"data": {"my-var": "hyphenated"}}
+<!-- out -->
+hyphenated
+
+<!-- test: variable name with underscores -->
+<!-- in -->
+<t-var name="my_var" />
+<!-- context -->
+{"data": {"my_var": "underscored"}}
+<!-- out -->
+underscored
+
+<!-- test: empty context object -->
+<!-- in -->
+<t-var name="x">default</t-var>
+<!-- context -->
+{}
+<!-- out -->
+default
+
+<!-- test: context with empty data -->
+<!-- in -->
+<t-var name="x">default</t-var>
+<!-- context -->
+{"data": {}}
+<!-- out -->
+default
+
+<!-- test: for with empty list in context -->
+<!-- in -->
+before<t-for item in items><t-var name="item.name" /></t-for>after
+<!-- context -->
+{"data": {"items": []}}
+<!-- out -->
+beforeafter
+
+<!-- test: multiline template output -->
+<!-- in -->
+<div>
+<t-var name="x" />
+</div>
+<!-- context -->
+{"data": {"x": "content"}}
+<!-- out -->
+<div>
+content
+</div>
+
+<!-- test: adjacent template elements no whitespace -->
+<!-- in -->
+<t-var name="a" /><t-var name="b" /><t-var name="c" />
+<!-- context -->
+{"data": {"a": "x", "b": "y", "c": "z"}}
+<!-- out -->
+xyz
+
+<!-- test: var immediately after html tag -->
+<!-- in -->
+<p><t-var name="x" /></p>
+<!-- context -->
+{"data": {"x": "value"}}
+<!-- out -->
+<p>value</p>
+
+<!-- test: multiple transforms on empty string -->
+<!-- in -->
+<t-var name="x" transform="trim|upper|slugify" />
+<!-- context -->
+{"data": {"x": "   "}}
+<!-- out -->
+
+<!-- test: default transform as first in chain -->
+<!-- in -->
+<t-var name="missing" transform="default:hello|upper" />
+<!-- out -->
+HELLO
+
+<!-- test: comment between vars -->
+<!-- in -->
+<t-var name="a" /><t-comment>separator</t-comment><t-var name="b" />
+<!-- context -->
+{"data": {"a": "X", "b": "Y"}}
+<!-- out -->
+XY
+
+<!-- test: for loop with string filter -->
+<!-- in -->
+<t-for item in items><t-if var="item.visible"><t-var name="item.name" /></t-if></t-for>
+<!-- context -->
+{"data": {"items": [{"name": "A", "visible": "yes"}, {"name": "B"}, {"name": "C", "visible": "yes"}]}}
+<!-- out -->
+AC
+
+<!-- test: include with slot default preserved -->
+<!-- in:comp.html -->
+<t-slot name="content">default content</t-slot>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- context -->
+<!-- out -->
+default content

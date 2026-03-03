@@ -146,3 +146,194 @@ A&amp;B
 {"data": {"x": ""}}
 <!-- out -->
 none
+
+<!-- test: length transform -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+5
+
+<!-- test: length of empty string -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": ""}}
+<!-- out -->
+0
+
+<!-- test: abs transform positive -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": "42"}}
+<!-- out -->
+42
+
+<!-- test: abs transform negative -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": "-42"}}
+<!-- out -->
+42
+
+<!-- test: floor transform -->
+<!-- in -->
+<t-var name="x" transform="floor" />
+<!-- context -->
+{"data": {"x": "3.7"}}
+<!-- out -->
+3
+
+<!-- test: ceil transform -->
+<!-- in -->
+<t-var name="x" transform="ceil" />
+<!-- context -->
+{"data": {"x": "3.2"}}
+<!-- out -->
+4
+
+<!-- test: escape transform -->
+<!-- in -->
+<t-raw name="x" transform="escape" />
+<!-- context -->
+{"data": {"x": "<script>alert('xss')</script>"}}
+<!-- out -->
+&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;
+
+<!-- test: url_encode transform -->
+<!-- in -->
+<t-var name="x" transform="url_encode" />
+<!-- context -->
+{"data": {"x": "hello world"}}
+<!-- out -->
+hello%20world
+
+<!-- test: url_encode special chars -->
+<!-- in -->
+<t-var name="x" transform="url_encode" />
+<!-- context -->
+{"data": {"x": "a&b=c"}}
+<!-- out -->
+a%26b%3Dc
+
+<!-- test: url_decode transform -->
+<!-- in -->
+<t-var name="x" transform="url_decode" />
+<!-- context -->
+{"data": {"x": "hello%20world"}}
+<!-- out -->
+hello world
+
+<!-- test: url_decode special chars -->
+<!-- in -->
+<t-var name="x" transform="url_decode" />
+<!-- context -->
+{"data": {"x": "a%26b%3Dc"}}
+<!-- out -->
+a&amp;b=c
+
+<!-- test: join transform -->
+<!-- in -->
+<t-raw name="x" transform="join:, " />
+<!-- context -->
+{"data": {"x": "a\nb\nc"}}
+<!-- out -->
+a, b, c
+
+<!-- test: split transform -->
+<!-- in -->
+<t-raw name="x" transform="split:, " />
+<!-- context -->
+{"data": {"x": "a, b, c"}}
+<!-- out -->
+a
+b
+c
+
+<!-- test: first transform default -->
+<!-- in -->
+<t-var name="x" transform="first" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+h
+
+<!-- test: first transform with count -->
+<!-- in -->
+<t-var name="x" transform="first:3" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+hel
+
+<!-- test: last transform default -->
+<!-- in -->
+<t-var name="x" transform="last" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+o
+
+<!-- test: last transform with count -->
+<!-- in -->
+<t-var name="x" transform="last:3" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+llo
+
+<!-- test: date transform passthrough -->
+<!-- in -->
+<t-var name="x" transform="date" />
+<!-- context -->
+{"data": {"x": "2024-01-15"}}
+<!-- out -->
+2024-01-15
+
+<!-- test: chained length and default -->
+<!-- in -->
+<t-var name="missing" transform="default:hello|length" />
+<!-- out -->
+5
+
+<!-- test: chained escape and upper -->
+<!-- in -->
+<t-raw name="x" transform="escape|upper" />
+<!-- context -->
+{"data": {"x": "<b>hi</b>"}}
+<!-- out -->
+&LT;B&GT;HI&LT;/B&GT;
+
+<!-- test: truncate with zero -->
+<!-- in -->
+<t-var name="x" transform="truncate:0" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+
+<!-- test: slugify with special characters -->
+<!-- in -->
+<t-var name="x" transform="slugify" />
+<!-- context -->
+{"data": {"x": "Hello, World! Lets go"}}
+<!-- out -->
+hello-world-lets-go
+
+<!-- test: capitalize single word -->
+<!-- in -->
+<t-var name="x" transform="capitalize" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+Hello
+
+<!-- test: replace with empty replacement -->
+<!-- in -->
+[<t-var name="x" transform="replace:o:" />]
+<!-- context -->
+{"data": {"x": "food"}}
+<!-- out -->
+[fd]

@@ -110,3 +110,59 @@
 <!-- in -->
 <p><t-var name="x">no close tag</p>
 <!-- error: MalformedElement -->
+
+<!-- test: three-level dotted path -->
+<!-- in -->
+<t-var name="a.b.c.d" />
+<!-- context -->
+{"data": {"a": {"b": {"c": {"d": "deep"}}}}}
+<!-- out -->
+deep
+
+<!-- test: dotted path intermediate missing with default -->
+<!-- in -->
+<t-var name="a.b.c">fallback</t-var>
+<!-- context -->
+{"data": {"a": "leaf"}}
+<!-- out -->
+fallback
+
+<!-- test: var ampersand in attribute context -->
+<!-- in -->
+<a href="?a=1&amp;b=2"><t-var name="x" /></a>
+<!-- context -->
+{"data": {"x": "link"}}
+<!-- out -->
+<a href="?a=1&amp;b=2">link</a>
+
+<!-- test: var with single quote passes through -->
+<!-- in -->
+<t-var name="x" />
+<!-- context -->
+{"data": {"x": "it's"}}
+<!-- out -->
+it's
+
+<!-- test: var adjacent to text -->
+<!-- in -->
+prefix<t-var name="x" />suffix
+<!-- context -->
+{"data": {"x": "-mid-"}}
+<!-- out -->
+prefix-mid-suffix
+
+<!-- test: integer value uses default -->
+<!-- in -->
+<t-var name="count">N/A</t-var>
+<!-- context -->
+{"data": {"count": 42}}
+<!-- out -->
+N/A
+
+<!-- test: boolean true uses default -->
+<!-- in -->
+<t-var name="flag">N/A</t-var>
+<!-- context -->
+{"data": {"flag": true}}
+<!-- out -->
+N/A

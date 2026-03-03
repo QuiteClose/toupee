@@ -83,3 +83,75 @@ B,
 {"data": {"site": {"title": "MySite"}, "pages": {"posts": [{"title": "Post"}]}}}
 <!-- out -->
 MySite:Post,
+
+<!-- test: for with simple string list -->
+<!-- in -->
+<t-for tag in tags>[<t-var name="tag" />]</t-for>
+<!-- context -->
+{"data": {"tags": ["css", "html", "js"]}}
+<!-- out -->
+[css][html][js]
+
+<!-- test: for with nested objects -->
+<!-- in -->
+<t-for item in items><t-var name="item.meta.label" />,</t-for>
+<!-- context -->
+{"data": {"items": [{"meta": {"label": "A"}}, {"meta": {"label": "B"}}]}}
+<!-- out -->
+A,B,
+
+<!-- test: for with custom alias -->
+<!-- in -->
+<t-for entry in items as idx><t-var name="idx.number" />.<t-var name="entry.name" />,</t-for>
+<!-- context -->
+{"data": {"items": [{"name": "Alpha"}, {"name": "Beta"}, {"name": "Gamma"}]}}
+<!-- out -->
+1.Alpha,2.Beta,3.Gamma,
+
+<!-- test: for single item -->
+<!-- in -->
+<t-for item in items><t-var name="item.name" /></t-for>
+<!-- context -->
+{"data": {"items": [{"name": "only"}]}}
+<!-- out -->
+only
+
+<!-- test: for with html in body -->
+<!-- in -->
+<ul><t-for item in items><li><t-var name="item.name" /></li></t-for></ul>
+<!-- context -->
+{"data": {"items": [{"name": "First"}, {"name": "Second"}, {"name": "Third"}]}}
+<!-- out -->
+<ul><li>First</li><li>Second</li><li>Third</li></ul>
+
+<!-- test: for with let inside -->
+<!-- in -->
+<t-for item in items><t-let name="upper" transform="upper"><t-var name="item.name" /></t-let>[<t-var name="upper" />]</t-for>
+<!-- context -->
+{"data": {"items": [{"name": "hello"}, {"name": "world"}]}}
+<!-- out -->
+[HELLO][WORLD]
+
+<!-- test: for with offset exceeding length -->
+<!-- in -->
+[<t-for item in items offset="10"><t-var name="item.name" /></t-for>]
+<!-- context -->
+{"data": {"items": [{"name": "A"}]}}
+<!-- out -->
+[]
+
+<!-- test: for sort with limit -->
+<!-- in -->
+<t-for item in items sort="name" limit="2"><t-var name="item.name" />,</t-for>
+<!-- context -->
+{"data": {"items": [{"name": "Cherry"}, {"name": "Apple"}, {"name": "Banana"}, {"name": "Date"}]}}
+<!-- out -->
+Apple,Banana,
+
+<!-- test: for index starts at zero -->
+<!-- in -->
+<t-for item in items as loop><t-if var="loop.index" equals="0">first<t-else />other</t-if>,</t-for>
+<!-- context -->
+{"data": {"items": [{"x": "1"}, {"x": "2"}, {"x": "3"}]}}
+<!-- out -->
+first,other,other,

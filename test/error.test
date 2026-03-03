@@ -48,3 +48,102 @@
 <!-- in -->
 <t-include template="missing.html" />
 <!-- error: TemplateNotFound -->
+
+<!-- test: undefined variable with detail -->
+<!-- in -->
+<p>hello</p>
+<t-var name="titl" />
+<!-- error: UndefinedVariable -->
+<!-- error-line: 2 -->
+<!-- error-column: 1 -->
+<!-- error-kind: undefined_variable -->
+<!-- error-message: titl -->
+
+<!-- test: template not found detail -->
+<!-- in -->
+<t-include template="nope.html" />
+<!-- error: TemplateNotFound -->
+<!-- error-kind: template_not_found -->
+<!-- error-message: nope.html -->
+
+<!-- test: circular reference detail -->
+<!-- in:a.html -->
+<t-extend template="b.html">
+<t-define name="">A</t-define>
+<!-- in:b.html -->
+<t-extend template="a.html">
+<t-define name="">B</t-define>
+<!-- in -->
+<t-extend template="a.html">
+<t-define name="">start</t-define>
+<!-- error: CircularReference -->
+<!-- error-kind: circular_reference -->
+
+<!-- test: malformed element detail -->
+<!-- in -->
+<t-var name="x"
+<!-- error: MalformedElement -->
+
+<!-- test: undefined var on line 3 -->
+<!-- in -->
+<h1>Title</h1>
+<p>Paragraph</p>
+<t-var name="missing_var" />
+<!-- error: UndefinedVariable -->
+<!-- error-line: 3 -->
+<!-- error-kind: undefined_variable -->
+<!-- error-message: missing_var -->
+
+<!-- test: unclosed extend element -->
+<!-- in -->
+<t-extend template="base.html"
+<!-- error: MalformedElement -->
+
+<!-- test: t-for missing in keyword -->
+<!-- in -->
+<t-for item items><t-var name="item.x" /></t-for>
+<!-- error: MalformedElement -->
+
+<!-- test: t-let missing name -->
+<!-- in -->
+<t-let>content</t-let>
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-extend element -->
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="">content
+<!-- error: MalformedElement -->
+
+<!-- test: t-include unclosed block -->
+<!-- in -->
+<t-include template="comp.html">
+<t-define name="title">content
+<!-- error: MalformedElement -->
+
+<!-- test: undefined var in included template -->
+<!-- in:comp.html -->
+<div><t-var name="missing" /></div>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- error: UndefinedVariable -->
+<!-- error-kind: undefined_variable -->
+<!-- error-message: missing -->
+
+<!-- test: duplicate slot in extend -->
+<!-- in:layout.html -->
+<div><t-slot name="title" /></div>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="title">First</t-define>
+<t-define name="title">Second</t-define>
+<!-- error: DuplicateSlotDefinition -->
+
+<!-- test: nested template not found -->
+<!-- in:outer.html -->
+<t-include template="inner.html" />
+<!-- in -->
+<t-include template="outer.html" />
+<!-- error: TemplateNotFound -->
+<!-- error-kind: template_not_found -->
+<!-- error-message: inner.html -->

@@ -58,3 +58,35 @@ Tom & Jerry <"quotes">
 <!-- in -->
 <t-raw name="x">no close
 <!-- error: MalformedElement -->
+
+<!-- test: raw with dotted path -->
+<!-- in -->
+<t-raw name="page.content" />
+<!-- context -->
+{"data": {"page": {"content": "<p>Hello</p>"}}}
+<!-- out -->
+<p>Hello</p>
+
+<!-- test: raw with transform -->
+<!-- in -->
+<t-raw name="x" transform="upper" />
+<!-- context -->
+{"data": {"x": "<b>bold</b>"}}
+<!-- out -->
+<B>BOLD</B>
+
+<!-- test: raw with chained transforms -->
+<!-- in -->
+<t-raw name="x" transform="trim|upper" />
+<!-- context -->
+{"data": {"x": "  hello  "}}
+<!-- out -->
+HELLO
+
+<!-- test: raw with deeply nested path -->
+<!-- in -->
+<t-raw name="a.b.c" />
+<!-- context -->
+{"data": {"a": {"b": {"c": "<em>deep</em>"}}}}
+<!-- out -->
+<em>deep</em>
