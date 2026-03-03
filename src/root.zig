@@ -9,6 +9,15 @@ pub const IncludeEntry = @import("Context.zig").IncludeEntry;
 pub const RenderError = @import("Context.zig").RenderError;
 pub const Options = @import("Renderer.zig").Options;
 
+pub const RenderResult = struct {
+    output: []const u8,
+    allocator: Allocator,
+
+    pub fn deinit(self: RenderResult) void {
+        self.allocator.free(self.output);
+    }
+};
+
 pub const Node = @import("Node.zig");
 pub const Parser = @import("Parser.zig");
 pub const Renderer = @import("Renderer.zig");
@@ -73,6 +82,14 @@ pub const Engine = struct {
         var opts = options;
         opts.registry = &self.registry;
         return renderImpl(a, input, ctx, resolver, opts);
+    }
+
+    pub fn renderOwned(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError!RenderResult {
+        return .{ .output = try self.render(a, input, ctx, resolver, options), .allocator = a };
+    }
+
+    pub fn renderTemplateOwned(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError!RenderResult {
+        return .{ .output = try self.renderTemplate(a, name, ctx, resolver, options), .allocator = a };
     }
 
     pub fn renderFormatted(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
@@ -171,6 +188,18 @@ test "engine custom transform via registry" {
     const result = try engine.render(testing.allocator, "<t-var name=\"msg\" transform=\"reverse\" />", &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("cba", result);
+}
+
+test "engine renderOwned returns RenderResult" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "x", .{ .string = "42" });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+    const result = try engine.renderOwned(testing.allocator, "<t-var name=\"x\" />", &ctx, &resolver, .{});
+    defer result.deinit();
+    try testing.expectEqualStrings("42", result.output);
 }
 
 test "engine addTemplate replaces existing" {
