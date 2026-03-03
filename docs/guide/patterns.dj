@@ -1,0 +1,115 @@
+# Common Patterns
+
+Practical recipes for building templates with Toupee.
+
+## Blog layout with inheritance
+
+A common pattern: base template with header/footer, page template with content area, individual pages.
+
+```html
+{# base.html #}
+<html>
+<head><title><t-slot name="title" /> - <t-var name="site.title" /></title></head>
+<body>
+<header><t-var name="site.name" /></header>
+<main><t-slot /></main>
+<footer>&copy; <t-var name="site.title" /></footer>
+</body>
+</html>
+```
+
+```html
+{# index.html #}
+<t-extend template="base.html">
+<t-define name="title">Home</t-define>
+<t-define name="">
+<h1>Welcome</h1>
+<t-for post in posts>
+<article>
+<h2><t-var name="post.title" /></h2>
+<p><t-var name="post.summary" /></p>
+</article>
+</t-for>
+</t-define>
+```
+
+## Reusable components with includes
+
+Build a library of components and compose them:
+
+```html
+{# tag.html #}
+<span class="tag"><t-attr name="label" /></span>
+```
+
+```html
+{# card.html #}
+<div class="card">
+<t-slot name="header" />
+<t-slot />
+<div class="tags">
+<t-for tag in tags>
+<t-include template="tag.html" label="tag" />
+</t-for>
+</div>
+</div>
+```
+
+## Conditional navigation highlighting
+
+```html
+<nav>
+<t-for link in nav>
+<t-if var="link.active">
+<a class="active"><t-var name="link.label" /></a>
+<t-else />
+<a t-var:href="link.url"><t-var name="link.label" /></a>
+</t-if>
+</t-for>
+</nav>
+```
+
+## Computed variables with `<t-let>`
+
+Generate a slug from a title and use it in multiple places:
+
+```html
+<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let>
+<a href="/<t-var name="slug" />/"><t-var name="page.title" /></a>
+<link rel="canonical" href="https://example.com/<t-var name="slug" />/" />
+```
+
+## Optional sections
+
+Use slot existence checks for optional layout regions:
+
+```html
+{# layout.html #}
+<div class="page">
+<t-if slot="sidebar">
+<aside><t-slot name="sidebar" /></aside>
+</t-if>
+<main><t-slot /></main>
+</div>
+```
+
+Pages that define the sidebar slot get the sidebar; pages that don't get a full-width layout.
+
+## Meta tags with defaults
+
+```html
+<meta name="description" content="<t-var name="page.description"><t-var name="site.description" /></t-var>">
+<meta name="author" content="<t-var name="page.author">QuiteClose</t-var>">
+```
+
+## Loop with index-based logic
+
+```html
+<t-for item in items as loop>
+<t-if var="loop.index" equals="0">
+<div class="featured"><t-var name="item.title" /></div>
+<t-else />
+<div class="regular"><t-var name="item.title" /></div>
+</t-if>
+</t-for>
+```

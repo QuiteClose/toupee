@@ -1,0 +1,83 @@
+# Variables
+
+Variables output data values into templates. Use `<t-var>` for HTML-escaped output and `<t-raw>` for unescaped output.
+
+## `<t-var>` -- escaped output
+
+```html
+<p><t-var name="title" /></p>
+```
+
+With `{"title": "Tom & Jerry"}`, outputs:
+
+```html
+<p>Tom &amp; Jerry</p>
+```
+
+The characters `&`, `<`, `>`, and `"` are escaped to their HTML entity equivalents.
+
+## `<t-raw>` -- unescaped output
+
+```html
+<t-raw name="content" />
+```
+
+With `{"content": "<p>Hello</p>"}`, outputs:
+
+```html
+<p>Hello</p>
+```
+
+Use `<t-raw>` when the variable contains trusted HTML that should be rendered as-is.
+
+## Dotted paths
+
+Access nested data with dot-separated paths:
+
+```html
+<t-var name="site.title" />
+<t-var name="page.meta.description" />
+```
+
+With `{"site": {"title": "My Blog"}, "page": {"meta": {"description": "About"}}}`, these resolve to `My Blog` and `About`.
+
+## Default values
+
+Use block form to provide a fallback when the variable is missing:
+
+```html
+<t-var name="subtitle">No subtitle</t-var>
+```
+
+If `subtitle` is not in the data, outputs `No subtitle`. If it exists, outputs the variable value (escaped).
+
+The default body is rendered as template content, so it can contain other template elements:
+
+```html
+<t-var name="title"><t-var name="fallback_title" /></t-var>
+```
+
+## Transforms
+
+Apply transforms to modify variable values before output:
+
+```html
+<t-var name="title" transform="upper" />
+<t-var name="slug" transform="lower|slugify" />
+```
+
+Transforms are piped with `|`. Arguments follow the transform name with `:`.
+
+```html
+<t-var name="text" transform="truncate:100" />
+<t-var name="text" transform="replace:foo:bar" />
+```
+
+See the [Transform Reference](transforms.dj) for all built-in transforms.
+
+## Edge cases
+
+- Missing variable without a default body returns an `UndefinedVariable` error
+- Empty string values are valid and render as empty
+- Non-string values (integers, booleans, lists, maps) are not auto-coerced to strings; use explicit string values or the `default` transform
+- The default body of `<t-var>` is HTML-escaped; use `<t-raw>` with a default body for unescaped fallback content

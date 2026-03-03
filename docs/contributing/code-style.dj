@@ -1,0 +1,96 @@
+# Code Style
+
+Conventions for contributing to Toupee.
+
+## Function length
+
+Functions must stay under 40 lines. If a function grows beyond this, extract helper functions.
+
+```zig
+// Good: focused function
+fn renderVariable(state: State, v: Node.Variable, ctx: *Context, out: *Output) !void {
+    const raw = resolveValue(state, v, ctx) orelse return handleMissing(state, v, out);
+    const transformed = try applyTransforms(state, v.transforms, raw);
+    try out.appendSlice(state.allocator, escapeHtml(transformed));
+}
+
+// Bad: monolithic function doing everything
+fn renderVariable(...) !void {
+    // 80 lines of resolution, transformation, escaping, error handling...
+}
+```
+
+## Naming
+
+| Kind | Convention | Example |
+|------|-----------|---------|
+| Functions | camelCase | `parseContent`, `renderNodes` |
+| Types | PascalCase | `Node`, `ErrorDetail`, `ParseResult` |
+| Constants | snake_case | `max_depth`, `default_limit` |
+| Fields | snake_case | `source_pos`, `item_name` |
+| Enum values | snake_case | `undefined_variable`, `template_not_found` |
+| Test names | descriptive string | `"var with dotted path"` |
+
+## Error handling
+
+- Use Zig's error union return types
+- Populate `ErrorDetail` via `setRichError()` before returning errors
+- Include `source_pos` in all node types that can produce errors
+- Error messages should be complete sentences describing what went wrong
+
+```zig
+// Good: rich error before return
+fn renderVariable(state: State, v: Node.Variable, ctx: *Context) !void {
+    const val = ctx.resolveString(v.name) orelse {
+        try setRichError(state, v.source_pos, .undefined_variable, v.name);
+        return error.UndefinedVariable;
+    };
+    // ...
+}
+
+// Bad: bare error without context
+fn renderVariable(state: State, v: Node.Variable, ctx: *Context) !void {
+    const val = ctx.resolveString(v.name) orelse return error.UndefinedVariable;
+}
+```
+
+## Memory management
+
+- Use the allocator passed through `State` for temporary allocations
+- Use `ArenaAllocator` for parse results (all nodes freed together)
+- Never store references to stack-local data in nodes
+- Node string fields reference slices of the original source -- no copying needed
+
+## Module organisation
+
+- Each module has one primary responsibility
+- Public API surface is minimal: only expose what callers need
+- Tests live at the bottom of each module
+- Helper functions that are only used by one module stay private
+
+## Comments
+
+Comments explain non-obvious intent. Do not narrate what code does.
+
+```zig
+// Good: explains why
+// Extend chains are resolved innermost-first so the outermost
+// template's structure wraps the final filled slots.
+fn resolveExtendChain(...) { ... }
+
+// Bad: narrates what
+// Loop through the nodes array
+for (nodes) |node| { ... }
+```
+
+## Import style
+
+Group imports: standard library first, then project modules.
+
+```zig
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Node = @import("Node.zig");
+const Context = @import("Context.zig");
+```

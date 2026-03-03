@@ -1,0 +1,115 @@
+# Error Handling
+
+Toupee uses Zig's error union system. All rendering functions return `RenderError![]const u8`.
+
+## Error types
+
+```zig
+pub const RenderError = error{
+    MalformedElement,
+    TemplateNotFound,
+    CircularReference,
+    DuplicateSlotDefinition,
+    UndefinedVariable,
+    OutOfMemory,
+};
+```
+
+| Error | Cause |
+|-------|-------|
+| `MalformedElement` | Invalid template syntax (unclosed tags, missing attributes) |
+| `TemplateNotFound` | `<t-extend>` or `<t-include>` references a template not in the resolver |
+| `CircularReference` | Template extend chain forms a cycle |
+| `DuplicateSlotDefinition` | Two `<t-define>` blocks with the same name |
+| `UndefinedVariable` | `<t-var>` or `<t-raw>` references a missing variable with no default |
+| `OutOfMemory` | Allocator exhausted |
+
+## ErrorDetail
+
+For rich error messages, attach an `ErrorDetail` to the context before rendering:
+
+```zig
+var err_detail: toupee.ErrorDetail = .{};
+ctx.err_detail = &err_detail;
+```
+
+After a render error, `ErrorDetail` contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `line` | `usize` | 1-based line number in the template |
+| `column` | `usize` | 1-based column number |
+| `source_file` | `[]const u8` | Template name (from Options) |
+| `message` | `[]const u8` | Inner message (variable name, template name) |
+| `source_line` | `[]const u8` | The source line containing the error |
+| `caret_len` | `usize` | Length of the caret underline |
+| `kind` | `Kind` | Error category enum |
+| `suggestion` | `[]const u8` | Typo suggestion (for undefined variables) |
+| `include_stack_len` | `u8` | Number of include/extend stack entries |
+
+### Kind enum
+
+```zig
+pub const Kind = enum {
+    none,
+    undefined_variable,
+    template_not_found,
+    circular_reference,
+    malformed_element,
+    duplicate_slot,
+};
+```
+
+### Formatted error messages
+
+```zig
+const msg = try err_detail.formatError(allocator);
+defer allocator.free(msg);
+```
+
+Produces output like:
+
+```
+error: undefined variable 'titl' in 'page.html'
+  --> page.html:3:1
+   |
+ 3 | <t-var name="titl" />
+   | ^^^^^^^^^^^^^^^^^^^^^
+   = did you mean 'title'?
+   = included from 'base.html:5'
+```
+
+### Include stack
+
+The include stack shows the chain of template inclusions leading to the error:
+
+```zig
+for (err_detail.includeStack()) |entry| {
+    std.debug.print("  included from {s}:{d}\n", .{ entry.template, entry.line });
+}
+```
+
+## Handling strategy
+
+```zig
+const result = engine.render(allocator, source, &ctx, &resolver, .{});
+if (result) |output| {
+    defer allocator.free(output);
+    // use output
+} else |err| {
+    switch (err) {
+        error.UndefinedVariable => {
+            // check err_detail for specifics
+        },
+        error.TemplateNotFound => {
+            // missing template
+        },
+        error.MalformedElement => {
+            // syntax error in template
+        },
+        else => {
+            // other errors
+        },
+    }
+}
+```

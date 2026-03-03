@@ -1,0 +1,128 @@
+# Integration Guide
+
+How to embed Toupee in a Zig project.
+
+## build.zig setup
+
+Add Toupee as a dependency in `build.zig.zon`:
+
+```
+zig fetch --save <toupee-url>
+```
+
+Then in `build.zig`:
+
+```zig
+const toupee_dep = b.dependency("toupee", .{
+    .target = target,
+    .optimize = optimize,
+});
+
+exe.root_module.addImport("toupee", toupee_dep.module("toupee"));
+```
+
+## Minimal example
+
+```zig
+const std = @import("std");
+const toupee = @import("toupee");
+
+pub fn main() !void {
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    defer _ = gpa.deinit();
+    const a = gpa.allocator();
+
+    var engine = try toupee.Engine.init(a);
+    defer engine.deinit();
+
+    const template = "<h1><t-var name=\"title\" /></h1>";
+    var ctx: toupee.Context = .{};
+    try ctx.putData(a, "title", .{ .string = "Hello" });
+    defer ctx.data.deinit(a);
+
+    var resolver: toupee.Resolver = .{};
+    const output = try engine.render(a, template, &ctx, &resolver, .{});
+    defer a.free(output);
+
+    const stdout = std.io.getStdOut().writer();
+    try stdout.writeAll(output);
+    try stdout.writeByte('\n');
+}
+```
+
+## Static site generator pattern
+
+For a static site generator, use the Engine's template cache:
+
+```zig
+var engine = try toupee.Engine.init(allocator);
+defer engine.deinit();
+
+// Load all templates once
+try engine.addTemplate("base.html", base_source);
+try engine.addTemplate("page.html", page_source);
+
+// Build resolver for runtime template lookup
+var resolver: toupee.Resolver = .{};
+try resolver.put(allocator, "base.html", base_source);
+try resolver.put(allocator, "page.html", page_source);
+
+// Render each page
+for (pages) |page| {
+    var ctx = buildPageContext(allocator, page);
+    const output = try engine.renderTemplate(
+        allocator, page.layout, &ctx, &resolver, .{}
+    );
+    try writeFile(page.output_path, output);
+    allocator.free(output);
+}
+```
+
+## Memory management
+
+Toupee uses Zig's allocator pattern throughout:
+
+- All `render` functions return caller-owned `[]const u8` that must be freed
+- `Engine.init` and `Engine.addTemplate` allocate internal structures
+- `Engine.deinit` frees all internal allocations
+- `Context` data must be freed by the caller
+- Use `ArenaAllocator` for per-request rendering to simplify cleanup
+
+### Arena allocator pattern
+
+```zig
+for (pages) |page| {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var ctx = try buildPageContext(a, page);
+    const output = try engine.render(a, template, &ctx, &resolver, .{});
+    try writeFile(page.path, output);
+    // arena.deinit() cleans up everything
+}
+```
+
+## Testing templates
+
+Use Zig's built-in test framework:
+
+```zig
+test "home page renders correctly" {
+    var engine = try toupee.Engine.init(std.testing.allocator);
+    defer engine.deinit();
+
+    var ctx: toupee.Context = .{};
+    try ctx.putData(std.testing.allocator, "title", .{ .string = "Home" });
+    defer ctx.data.deinit(std.testing.allocator);
+
+    var resolver: toupee.Resolver = .{};
+    const result = try engine.render(
+        std.testing.allocator, "<h1><t-var name=\"title\" /></h1>",
+        &ctx, &resolver, .{}
+    );
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings("<h1>Home</h1>", result);
+}
+```

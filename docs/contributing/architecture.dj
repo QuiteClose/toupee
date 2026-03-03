@@ -1,0 +1,95 @@
+# Architecture
+
+Toupee is a two-phase template engine: parse source into an intermediate representation (IR), then render IR to output.
+
+## Module map
+
+```
+root.zig          Public API: Engine, render(), renderFormatted()
+├── Parser.zig    Source → []Node IR
+├── Renderer.zig  []Node IR → output string
+├── Node.zig      IR node type definitions (tagged union)
+├── Context.zig   Context, Resolver, ErrorDetail, RenderError
+├── Value.zig     Value tagged union (string, bool, int, list, map)
+├── transform.zig Transform registry and built-in implementations
+├── format.zig    Post-render HTML pretty-printer
+└── indent.zig    Indentation tracking utilities
+```
+
+## Parse/render pipeline
+
+```
+template source ([]const u8)
+        │
+        ▼
+   Parser.parse()
+        │
+        ▼
+   []Node (IR)        ← immutable, cacheable
+        │
+        ▼
+   Renderer.render()  ← takes Context + Resolver
+        │
+        ▼
+   output ([]const u8)
+```
+
+### Parse phase
+
+`Parser.parse()` takes a source string and returns a `ParseResult` containing:
+- `nodes: []const Node.Node` -- the IR array
+- `arena: ArenaAllocator` -- owns all node memory
+
+The parser is a single-pass, recursive descent parser. It scans for `<t-` prefixed elements and dispatches to element-specific parsers. Literal text between template elements becomes `Literal` nodes.
+
+Key functions:
+- `parseContent()` -- main loop: scan for `<t-` elements, collect literals
+- `dispatchElement()` -- route to element-specific parser
+- `parseVarOrRaw()`, `parseConditional()`, `parseLoop()`, etc. -- element parsers
+
+Each element parser extracts attributes from the tag string and constructs the appropriate Node variant.
+
+### Render phase
+
+`Renderer.render()` takes `[]Node`, `Context`, `Resolver`, and `Options`. It walks the node array and builds the output string.
+
+Key functions:
+- `renderNodes()` -- main dispatch loop over node array
+- `renderVariable()` -- resolve, transform, escape, output
+- `renderConditional()` -- evaluate condition, render matching branch
+- `renderLoop()` -- iterate, sort, slice, render body per item
+- `renderInclude()` -- parse included template, render with child context
+- `resolveExtendChain()` -- walk extend chain, collect slot definitions
+
+The renderer maintains a `State` struct with template name, source, include stack, and registry. State is passed by value; functions that modify it (like `pushInclude`) return a new State.
+
+## IR structure
+
+The IR is an array of `Node.Node` values. `Node` is a tagged union with these variants:
+
+| Variant | Fields |
+|---------|--------|
+| `literal` | `content: []const u8` |
+| `variable` | `name, default_body, transforms, source_pos` |
+| `raw_variable` | same as variable |
+| `conditional` | `mode, key, value, body, branches, else_body, source_pos` |
+| `loop` | `item_name, collection, body, sort_key, sort_order, limit, offset, alias, source_pos` |
+| `slot` | `name, default_body, source_pos` |
+| `extend` | `template, defines, source_pos` |
+| `include` | `template, attrs, defines, body, source_pos` |
+| `let_binding` | `name, body, transforms, source_pos` |
+| `comment` | (no fields) |
+| `bound_tag` | `tag_name, bindings, inner_content, static_attrs, source_pos` |
+| `attr_output` | `name, source_pos` |
+
+All node content references slices of the original source string. The `source_pos` field stores the absolute byte offset in the source, enabling accurate error reporting.
+
+## Error reporting
+
+When the renderer encounters an error, it populates `Context.err_detail` (if provided) with:
+- Line/column computed from source position
+- Source line excerpt with caret highlighting
+- Typo suggestion (Levenshtein distance for undefined variables)
+- Include stack trace
+
+Error detail is populated by `Renderer.setRichError()`, which calls helper functions like `computeLineCol()`, `extractSourceLine()`, and `findSuggestion()`.

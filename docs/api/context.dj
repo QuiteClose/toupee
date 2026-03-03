@@ -1,0 +1,125 @@
+# Context and Value API
+
+The `Context` holds template data, attributes, and slots. The `Value` type represents nested data structures.
+
+## Context
+
+```zig
+var ctx: toupee.Context = .{};
+```
+
+### Adding data
+
+```zig
+try ctx.putData(allocator, "title", .{ .string = "Hello" });
+
+var site: toupee.Value.Map = .{};
+try site.put(allocator, "name", .{ .string = "My Site" });
+try ctx.putData(allocator, "site", .{ .map = site });
+```
+
+### Adding attributes
+
+Attributes are string key-value pairs used by `<t-attr>` in included templates:
+
+```zig
+try ctx.putAttr(allocator, "variant", "primary");
+```
+
+### Adding slots
+
+Slots are pre-rendered string content used by `<t-slot>`:
+
+```zig
+try ctx.putSlot(allocator, "header", "<h1>Title</h1>");
+```
+
+### Resolving values
+
+```zig
+const val = ctx.resolve("site.name"); // ?Value
+const str = ctx.resolveString("site.name"); // ?[]const u8
+```
+
+### Error detail
+
+Attach an `ErrorDetail` to capture rich error information:
+
+```zig
+var err_detail: toupee.ErrorDetail = .{};
+ctx.err_detail = &err_detail;
+
+const result = engine.render(allocator, source, &ctx, &resolver, .{});
+if (result) |output| {
+    // success
+} else |err| {
+    const msg = try err_detail.formatError(allocator);
+    defer allocator.free(msg);
+    std.debug.print("{s}", .{msg});
+}
+```
+
+## Value
+
+A tagged union representing template data:
+
+```zig
+pub const Value = union(enum) {
+    string: []const u8,
+    boolean: bool,
+    integer: i64,
+    list: []const Value,
+    map: Map,
+};
+```
+
+### String values
+
+```zig
+const v: Value = .{ .string = "hello" };
+```
+
+Only string values are output by `<t-var>` and `<t-raw>`. Other types are used for data structure and conditional logic.
+
+### Maps (nested objects)
+
+```zig
+var m: Value.Map = .{};
+try m.put(allocator, "title", .{ .string = "Page" });
+try m.put(allocator, "draft", .{ .boolean = true });
+const v: Value = .{ .map = m };
+```
+
+### Lists (arrays)
+
+```zig
+const items = try allocator.alloc(Value, 2);
+items[0] = .{ .string = "first" };
+items[1] = .{ .string = "second" };
+const v: Value = .{ .list = items };
+```
+
+### Dot-path resolution
+
+`Value.resolve("a.b.c")` traverses nested maps:
+
+```zig
+const root: Value = .{ .map = data };
+if (root.resolve("site.title")) |val| {
+    if (val.asString()) |s| {
+        // s is the string value
+    }
+}
+```
+
+## Resolver
+
+The `Resolver` maps template names to their source content:
+
+```zig
+var resolver: toupee.Resolver = .{};
+try resolver.put(allocator, "base.html", base_source);
+try resolver.put(allocator, "nav.html", nav_source);
+```
+
+Templates referenced by `<t-extend>` and `<t-include>` are looked up in the resolver.

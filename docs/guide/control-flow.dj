@@ -1,0 +1,157 @@
+# Control Flow
+
+Toupee provides conditionals and loops for dynamic template content.
+
+## `<t-if>` -- conditionals
+
+Render content when a variable exists:
+
+```html
+<t-if var="user">
+<p>Welcome, <t-var name="user.name" /></p>
+</t-if>
+```
+
+The condition checks for _existence_, not truthiness. A variable set to an empty string, `false`, or `0` still exists and satisfies the condition.
+
+### Equality checks
+
+```html
+<t-if var="page.type" equals="post">
+<article>...</article>
+</t-if>
+```
+
+### Inequality checks
+
+```html
+<t-if var="status" not-equals="draft">
+<p>Published</p>
+</t-if>
+```
+
+A missing variable satisfies `not-equals` (it doesn't equal anything).
+
+### Non-existence checks
+
+```html
+<t-if var="sidebar" not-exists>
+<p>No sidebar</p>
+</t-if>
+```
+
+### `<t-else>` and `<t-elif>`
+
+```html
+<t-if var="role" equals="admin">
+<p>Admin panel</p>
+<t-elif var="role" equals="editor" />
+<p>Editor view</p>
+<t-else />
+<p>Read-only</p>
+</t-if>
+```
+
+`<t-elif />` and `<t-else />` are self-closing separators within the `<t-if>...</t-if>` block. Multiple `<t-elif />` branches are supported.
+
+### Checking attributes and slots
+
+In included templates, check for attributes:
+
+```html
+<t-if attr="variant">styled<t-else />plain</t-if>
+```
+
+In extended templates, check for slots:
+
+```html
+<t-if slot="sidebar">has sidebar</t-if>
+<t-if slot="sidebar" not-exists>no sidebar</t-if>
+```
+
+## `<t-for>` -- loops
+
+Iterate over a list:
+
+```html
+<t-for post in posts>
+<article><h2><t-var name="post.title" /></h2></article>
+</t-for>
+```
+
+The loop variable (`post`) is scoped to the loop body. Parent variables remain accessible.
+
+### Loop metadata
+
+Use the `as` keyword to access loop metadata:
+
+```html
+<t-for post in posts as loop>
+<p>#<t-var name="loop.number" />: <t-var name="post.title" /></p>
+</t-for>
+```
+
+Available metadata:
+
+| Property | Description |
+|----------|-------------|
+| `loop.index` | Zero-based index (0, 1, 2, ...) |
+| `loop.number` | One-based number (1, 2, 3, ...) |
+
+### Sorting
+
+```html
+<t-for post in posts sort="date" order="desc">
+<t-var name="post.title" />
+</t-for>
+```
+
+`sort` specifies the key to sort by. `order` is `asc` (default) or `desc`.
+
+### Limit and offset
+
+```html
+<t-for post in posts limit="5" offset="2">
+<t-var name="post.title" />
+</t-for>
+```
+
+`limit` restricts the number of iterations. `offset` skips the first N items. Both work after sorting.
+
+### All modifiers combined
+
+```html
+<t-for post in posts sort="date" order="desc" offset="1" limit="3" as loop>
+<t-var name="loop.number" />: <t-var name="post.title" />
+</t-for>
+```
+
+## `<t-let>` -- capture variables
+
+Capture rendered content into a variable:
+
+```html
+<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let>
+<a href="/<t-var name="slug" />/"><t-var name="page.title" /></a>
+```
+
+The body is rendered as template content, and the result is stored as a new variable. Transforms can be applied to the captured content.
+
+## `<t-comment>` -- template comments
+
+Comments are stripped from output:
+
+```html
+<t-comment>This won't appear in the rendered HTML</t-comment>
+<t-comment />
+```
+
+Both block and self-closing forms work.
+
+## Edge cases
+
+- Missing loop collection renders nothing (no error)
+- Empty loop collection renders nothing
+- `<t-else />` and `<t-elif />` outside `<t-if>` cause `MalformedElement`
+- Loop variables from inner loops don't leak to outer scopes
+- `<t-let>` variables set inside includes don't leak to the caller

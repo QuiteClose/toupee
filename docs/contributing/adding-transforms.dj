@@ -1,0 +1,105 @@
+# Adding a Transform
+
+How to add a built-in transform to Toupee.
+
+## Step 1: Implement the function
+
+In `transform.zig`, add the implementation:
+
+```zig
+fn myTransform(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
+    _ = args;
+    // Transform the value and return a newly allocated result
+    const result = try a.alloc(u8, value.len);
+    // ... populate result ...
+    return result;
+}
+```
+
+The function signature must match `TransformFn`:
+
+```zig
+pub const TransformFn = *const fn (Allocator, []const u8, []const []const u8) RenderError![]u8;
+```
+
+- `Allocator`: use for allocating the return value
+- `value`: input string to transform
+- `args`: arguments from the template (e.g., `truncate:100` passes `["100"]`)
+- Returns: newly allocated `[]u8` (caller frees)
+
+## Step 2: Register in `registerBuiltins`
+
+```zig
+pub fn registerBuiltins(self: *Registry, a: Allocator) !void {
+    // ... existing registrations ...
+    try self.register(a, "my_transform", myTransform);
+}
+```
+
+## Step 3: Add unit tests
+
+Add tests at the bottom of `transform.zig`:
+
+```zig
+test "my_transform basic" {
+    const a = std.testing.allocator;
+    const result = try myTransform(a, "input", &.{});
+    defer a.free(result);
+    try std.testing.expectEqualStrings("expected", result);
+}
+```
+
+## Step 4: Add integration tests
+
+Add test cases to `test/transform.test`:
+
+```html
+<!-- test: my_transform basic -->
+<!-- in -->
+<t-var name="x" transform="my_transform" />
+<!-- context -->
+{"data": {"x": "input"}}
+<!-- out -->
+expected
+
+<!-- test: my_transform with argument -->
+<!-- in -->
+<t-var name="x" transform="my_transform:arg" />
+<!-- context -->
+{"data": {"x": "input"}}
+<!-- out -->
+expected
+```
+
+## Guidelines
+
+- Keep transform functions under 40 lines
+- Handle empty input gracefully (return empty string or the input unchanged)
+- Parse arguments defensively; invalid arguments should not crash
+- All transforms operate on strings; for numeric operations, parse the string, compute, and format back
+- Return a newly allocated string even if the result equals the input (the caller will free it)
+
+## Existing transforms for reference
+
+| Transform | Args | Example |
+|-----------|------|---------|
+| `upper` | none | `"hello"` → `"HELLO"` |
+| `lower` | none | `"HELLO"` → `"hello"` |
+| `capitalize` | none | `"hello world"` → `"Hello World"` |
+| `trim` | none | `"  hello  "` → `"hello"` |
+| `slugify` | none | `"Hello World!"` → `"hello-world"` |
+| `truncate` | length | `"hello" \| truncate:3` → `"hel"` |
+| `replace` | find, replacement | `"hello" \| replace:l:r` → `"herro"` |
+| `default` | fallback | `"" \| default:none` → `"none"` |
+| `length` | none | `"hello"` → `"5"` |
+| `escape` | none | `"<b>"` → `"&lt;b&gt;"` |
+| `url_encode` | none | `"a b"` → `"a%20b"` |
+| `url_decode` | none | `"a%20b"` → `"a b"` |
+| `abs` | none | `"-5"` → `"5"` |
+| `floor` | none | `"3.7"` → `"3"` |
+| `ceil` | none | `"3.2"` → `"4"` |
+| `first` | count (default 1) | `"hello" \| first:2` → `"he"` |
+| `last` | count (default 1) | `"hello" \| last:2` → `"lo"` |
+| `join` | separator | newline-separated → joined |
+| `split` | separator | joined → newline-separated |
+| `date` | none | passthrough (placeholder) |

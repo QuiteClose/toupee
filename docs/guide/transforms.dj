@@ -1,0 +1,226 @@
+# Transform Reference
+
+Transforms modify variable values before output. Apply them with the `transform` attribute on `<t-var>`, `<t-raw>`, or `<t-let>`.
+
+## Syntax
+
+Single transform:
+
+```html
+<t-var name="title" transform="upper" />
+```
+
+With arguments (separated by `:`):
+
+```html
+<t-var name="text" transform="truncate:100" />
+```
+
+Chained transforms (separated by `|`):
+
+```html
+<t-var name="title" transform="trim|lower|slugify" />
+```
+
+## String transforms
+
+### `upper`
+
+Converts to uppercase.
+
+```
+"hello world" → "HELLO WORLD"
+```
+
+### `lower`
+
+Converts to lowercase.
+
+```
+"HELLO WORLD" → "hello world"
+```
+
+### `capitalize`
+
+Capitalizes the first letter of each word.
+
+```
+"hello world" → "Hello World"
+```
+
+### `trim`
+
+Removes leading and trailing whitespace.
+
+```
+"  hello  " → "hello"
+```
+
+### `slugify`
+
+Converts to a URL-friendly slug: lowercase, non-alphanumeric characters replaced with hyphens, consecutive hyphens collapsed, leading/trailing hyphens removed.
+
+```
+"Hello World!" → "hello-world"
+"  My Blog Post  " → "my-blog-post"
+```
+
+### `truncate:N`
+
+Keeps the first N characters. No ellipsis is added.
+
+```
+"Hello World" | truncate:5 → "Hello"
+"Hi" | truncate:10 → "Hi"
+```
+
+### `replace:find:replacement`
+
+Replaces all occurrences of `find` with `replacement`.
+
+```
+"hello world" | replace:world:earth → "hello earth"
+"aaa" | replace:a:b → "bbb"
+```
+
+### `default:value`
+
+Returns `value` if the input is empty or the variable is missing.
+
+```
+"" | default:none → "none"
+"hello" | default:none → "hello"
+```
+
+## HTML/URL transforms
+
+### `escape`
+
+HTML-escapes `&`, `<`, `>`, `"`, and `'`.
+
+```
+"<b>bold</b>" → "&lt;b&gt;bold&lt;/b&gt;"
+```
+
+### `url_encode`
+
+Percent-encodes for URLs (RFC 3986). Unreserved characters pass through.
+
+```
+"hello world" → "hello%20world"
+"a&b=c" → "a%26b%3Dc"
+```
+
+### `url_decode`
+
+Decodes percent-encoded sequences.
+
+```
+"hello%20world" → "hello world"
+```
+
+## Collection transforms
+
+### `length`
+
+Returns the string length as a decimal number.
+
+```
+"hello" → "5"
+"" → "0"
+```
+
+### `first:N`
+
+Returns the first N characters (default 1).
+
+```
+"hello" | first → "h"
+"hello" | first:3 → "hel"
+```
+
+### `last:N`
+
+Returns the last N characters (default 1).
+
+```
+"hello" | last → "o"
+"hello" | last:3 → "llo"
+```
+
+### `join:separator`
+
+Joins newline-separated lines with a separator.
+
+```
+"a\nb\nc" | join:, → "a, b, c"
+```
+
+### `split:separator`
+
+Splits a string by separator into newline-separated lines.
+
+```
+"a, b, c" | split:, → "a\nb\nc"
+```
+
+## Numeric transforms
+
+### `abs`
+
+Returns the absolute value of an integer.
+
+```
+"-42" → "42"
+"42" → "42"
+```
+
+### `floor`
+
+Returns the floor of a float.
+
+```
+"3.7" → "3"
+"3.0" → "3"
+```
+
+### `ceil`
+
+Returns the ceiling of a float.
+
+```
+"3.2" → "4"
+"3.0" → "3"
+```
+
+## Other transforms
+
+### `date`
+
+Placeholder for date formatting. Currently passes the value through unchanged.
+
+```
+"2024-01-15" → "2024-01-15"
+```
+
+## Custom transforms
+
+Register custom transforms via the Engine:
+
+```zig
+const reverse = struct {
+    fn call(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
+        const buf = try a.alloc(u8, value.len);
+        for (buf, 0..) |*b, i| b.* = value[value.len - 1 - i];
+        return buf;
+    }
+}.call;
+
+try engine.registerTransform("reverse", reverse);
+```
+
+Then use in templates:
+
+```html
+<t-var name="text" transform="reverse" />
+```

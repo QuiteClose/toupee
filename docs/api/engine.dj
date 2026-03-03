@@ -1,0 +1,106 @@
+# Engine API
+
+The `Engine` is the top-level API for Toupee. It manages a transform registry and an optional template cache.
+
+## Creating an Engine
+
+```zig
+const toupee = @import("toupee");
+
+var engine = try toupee.Engine.init(allocator);
+defer engine.deinit();
+```
+
+`init` registers all 20 built-in transforms. The engine owns its registry and cache; `deinit` frees all resources.
+
+## Rendering raw source
+
+```zig
+const output = try engine.render(allocator, template_source, &ctx, &resolver, .{});
+defer allocator.free(output);
+```
+
+Parses and renders `template_source` in one step. The output is allocated with the provided allocator and must be freed by the caller.
+
+## Template caching
+
+Parse a template once and render it multiple times:
+
+```zig
+try engine.addTemplate("page.html", template_source);
+
+const output1 = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+defer allocator.free(output1);
+
+const output2 = try engine.renderTemplate(allocator, "page.html", &ctx2, &resolver, .{});
+defer allocator.free(output2);
+```
+
+`addTemplate` parses the source into an intermediate representation and caches it. The source is duplicated internally; the caller's copy can be freed. Calling `addTemplate` with the same name replaces the cached template.
+
+`renderTemplate` renders from the cache without re-parsing. Returns `TemplateNotFound` if the template hasn't been added.
+
+## RenderResult
+
+For convenience, `renderOwned` and `renderTemplateOwned` return a `RenderResult` struct that owns its memory:
+
+```zig
+const result = try engine.renderOwned(allocator, source, &ctx, &resolver, .{});
+defer result.deinit();
+// result.output contains the rendered string
+```
+
+## Pretty-printing
+
+`renderFormatted` renders and then reformats the HTML with consistent 2-space indentation:
+
+```zig
+const output = try engine.renderFormatted(allocator, source, &ctx, &resolver, .{});
+defer allocator.free(output);
+```
+
+## Custom transforms
+
+Register custom transforms before rendering:
+
+```zig
+try engine.registerTransform("reverse", struct {
+    fn call(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
+        _ = args;
+        const buf = try a.alloc(u8, value.len);
+        for (buf, 0..) |*b, i| b.* = value[value.len - 1 - i];
+        return buf;
+    }
+}.call);
+```
+
+The transform function signature is:
+
+```zig
+*const fn (Allocator, []const u8, []const []const u8) RenderError![]u8
+```
+
+- First argument: allocator for the return value
+- Second argument: input string value
+- Third argument: transform arguments (from `transform="name:arg1:arg2"`)
+- Returns: newly allocated transformed string
+
+## Options
+
+The `Options` struct configures rendering behaviour:
+
+```zig
+const opts: toupee.Options = .{
+    .template_name = "page.html",
+    .template_source = source,
+    .registry = &my_registry,
+};
+```
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `template_name` | `[]const u8` | `""` | Name shown in error messages |
+| `template_source` | `[]const u8` | `""` | Source for error excerpts |
+| `registry` | `?*const Registry` | `null` | Transform registry |
+
+When using the `Engine`, these are set automatically.

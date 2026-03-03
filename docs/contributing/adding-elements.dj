@@ -1,0 +1,154 @@
+# Adding a Template Element
+
+How to add a new `t-` element type to Toupee.
+
+## Step 1: Define the Node variant
+
+In `Node.zig`, add a new variant to the `Node` tagged union:
+
+```zig
+pub const Node = union(enum) {
+    // ... existing variants ...
+    my_element: MyElement,
+};
+
+pub const MyElement = struct {
+    name: []const u8,
+    body: []const Node = &.{},
+    source_pos: usize = 0,
+};
+```
+
+Add `source_pos: usize = 0` if the element can produce errors that should show source location.
+
+## Step 2: Add parser support
+
+In `Parser.zig`:
+
+1. Add the element tag to `classifyElement()`:
+
+```zig
+fn classifyElement(tag: []const u8) ?Element {
+    // ... existing checks ...
+    if (h.startsWith(tag, "<t-my-element")) return .my_element;
+    return null;
+}
+```
+
+2. Add to the `Element` enum and `dispatchElement()`:
+
+```zig
+const Element = enum {
+    // ... existing ...
+    my_element,
+};
+
+fn dispatchElement(a: Allocator, input: []const u8, i: usize, nodes: *NodeList, elem: Element, offset: usize) !usize {
+    return switch (elem) {
+        // ... existing ...
+        .my_element => parseMyElement(a, input, i, nodes, offset),
+    };
+}
+```
+
+3. Implement the parser function:
+
+```zig
+fn parseMyElement(a: Allocator, input: []const u8, start: usize, nodes: *NodeList, offset: usize) !usize {
+    const tag_end = findTagEnd(input, start) orelse return error.MalformedElement;
+    const tag = input[start..tag_end];
+    const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
+
+    if (h.isSelfClosing(tag)) {
+        try nodes.append(a, .{ .my_element = .{
+            .name = name,
+            .source_pos = offset + start,
+        } });
+        return tag_end;
+    }
+
+    const close = h.findClosingTag(input, tag_end, "t-my-element") orelse return error.MalformedElement;
+    const body = try parseContent(a, input[tag_end..close.start], offset + tag_end);
+
+    try nodes.append(a, .{ .my_element = .{
+        .name = name,
+        .body = body,
+        .source_pos = offset + start,
+    } });
+    return close.end;
+}
+```
+
+Keep the function under 40 lines.
+
+## Step 3: Add renderer support
+
+In `Renderer.zig`:
+
+1. Add to `renderNodes()`:
+
+```zig
+fn renderNodes(state: State, nodes: []const Node.Node, ctx: *Context, depth: usize) RenderError![]const u8 {
+    // ... existing dispatch ...
+    for (nodes) |node| {
+        switch (node) {
+            // ... existing cases ...
+            .my_element => |el| try renderMyElement(state, el, ctx, depth, &out),
+        }
+    }
+}
+```
+
+2. Implement the render function:
+
+```zig
+fn renderMyElement(state: State, el: Node.MyElement, ctx: *const Context, depth: usize, out: *std.ArrayListUnmanaged(u8)) RenderError!void {
+    // Implement rendering logic
+    // Use state.allocator for temporary allocations
+    // Use setRichError(state, el.source_pos, ...) for error reporting
+    const value = ctx.resolveString(el.name) orelse {
+        try setRichError(state, el.source_pos, .undefined_variable, el.name);
+        return error.UndefinedVariable;
+    };
+    try out.appendSlice(state.allocator, value);
+}
+```
+
+## Step 4: Add tests
+
+1. Create `test/my-element.test` with integration tests:
+
+```html
+<!-- test: basic my-element -->
+<!-- in -->
+<t-my-element name="x" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+hello
+```
+
+2. Add the test file to `test_runner.zig`:
+
+```zig
+const test_file_names = [_][]const u8{
+    // ... existing ...
+    "my-element.test",
+};
+```
+
+3. Add unit tests in `Parser.zig` and `Renderer.zig` for edge cases.
+
+## Step 5: Update Node.zig tests
+
+Add a test for the new variant in `Node.zig` to verify the struct layout.
+
+## Checklist
+
+- [ ] Node variant defined with `source_pos`
+- [ ] Parser function under 40 lines
+- [ ] Renderer function under 40 lines
+- [ ] Error reporting via `setRichError`
+- [ ] Integration tests in `.test` file
+- [ ] Unit tests in Parser.zig and Renderer.zig
+- [ ] Test file registered in `test_runner.zig`

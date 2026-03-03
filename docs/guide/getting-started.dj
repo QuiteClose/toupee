@@ -1,0 +1,73 @@
+# Getting Started
+
+Toupee is a template engine for Zig that uses HTML-like custom elements for template logic. Templates are plain HTML files with `t-` prefixed elements for variables, loops, conditionals, and composition.
+
+## Installing
+
+Add Toupee to your Zig project by fetching it as a dependency:
+
+```
+zig fetch --save https://github.com/quiteclose/toupee/archive/refs/heads/main.tar.gz
+```
+
+Then in your `build.zig`:
+
+```zig
+const toupee = b.dependency("toupee", .{
+    .target = target,
+    .optimize = optimize,
+});
+exe.root_module.addImport("toupee", toupee.module("toupee"));
+```
+
+## First template
+
+A Toupee template is plain HTML with `t-` elements:
+
+```html
+<h1><t-var name="title" /></h1>
+<p>Welcome to <t-var name="site.name" /></p>
+```
+
+Render it from Zig:
+
+```zig
+const toupee = @import("toupee");
+
+var engine = try toupee.Engine.init(allocator);
+defer engine.deinit();
+
+var ctx: toupee.Context = .{};
+try ctx.putData(allocator, "title", .{ .string = "Home" });
+
+var resolver: toupee.Resolver = .{};
+const output = try engine.render(allocator, template_source, &ctx, &resolver, .{});
+defer allocator.free(output);
+```
+
+Output:
+
+```html
+<h1>Home</h1>
+<p>Welcome to </p>
+```
+
+## Template elements
+
+Toupee provides these template elements:
+
+| Element | Purpose |
+|---------|---------|
+| `<t-var>` | Output a variable (HTML-escaped) |
+| `<t-raw>` | Output a variable (unescaped) |
+| `<t-if>` | Conditional rendering |
+| `<t-for>` | Loop over collections |
+| `<t-let>` | Capture rendered content into a variable |
+| `<t-extend>` | Inherit from a parent template |
+| `<t-slot>` | Define insertion points in parent templates |
+| `<t-define>` | Fill slots in parent templates or includes |
+| `<t-include>` | Include a component template |
+| `<t-attr>` | Output an include attribute |
+| `<t-comment>` | Template-only comment (stripped from output) |
+
+All template elements use self-closing (`<t-var name="x" />`) or block (`<t-if var="x">...</t-if>`) syntax.

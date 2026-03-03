@@ -1,0 +1,175 @@
+# Testing
+
+Toupee uses two layers of testing: unit tests in source modules and integration tests driven by `.test` files.
+
+## Running tests
+
+```bash
+# Run everything (unit tests + integration tests)
+zig build test
+
+# Run fuzz tests
+zig build fuzz
+
+# Run benchmarks (ReleaseFast)
+zig build bench
+```
+
+## Unit tests
+
+Unit tests live at the bottom of each source file using Zig's built-in `test` blocks. They cover internal functions and edge cases that are hard to express in the integration test format.
+
+Current unit test locations:
+- `Parser.zig` -- tag parsing, attribute extraction, element classification
+- `Renderer.zig` -- node rendering, value resolution, error detail population
+- `Node.zig` -- struct construction and field access
+- `Value.zig` -- tagged union operations, dot-path resolution, map/list access
+- `transform.zig` -- individual transform implementations
+- `root.zig` -- Engine lifecycle, caching, RenderResult
+- `indent.zig` -- indentation tracking
+- `format.zig` -- HTML pretty-printing
+
+## Integration test format
+
+Integration tests use `.test` files in the `test/` directory. Each file contains multiple test cases separated by `<!-- test: name -->` markers.
+
+### Basic structure
+
+```html
+<!-- test: descriptive name -->
+<!-- in -->
+template source here
+<!-- context -->
+{"data": {"key": "value"}}
+<!-- out -->
+expected output here
+```
+
+### Sections
+
+- `<!-- test: name -->` -- starts a new test case (required)
+- `<!-- in -->` -- template source (required)
+- `<!-- context -->` -- JSON data; `data` for variables, `templates` for includes (optional)
+- `<!-- out -->` -- expected rendered output (optional; if absent, error is expected)
+- `<!-- error -->` -- expected error type name (optional)
+
+### Context JSON format
+
+```json
+{
+  "data": {
+    "title": "Hello",
+    "items": ["a", "b", "c"],
+    "user": {"name": "Alice", "active": true}
+  },
+  "templates": {
+    "header.html": "<header>Header</header>",
+    "card.html": "<div class=\"card\"><t-slot /></div>"
+  }
+}
+```
+
+- `data` -- key-value pairs accessible as template variables
+- `templates` -- named templates accessible via `t-include` and `t-extend`
+
+### Error assertions
+
+For tests that verify error reporting, use these directives:
+
+```html
+<!-- test: undefined variable error detail -->
+<!-- in -->
+<t-var name="missing" />
+<!-- context -->
+{"data": {}}
+<!-- error -->
+UndefinedVariable
+<!-- error-line: 1 -->
+<!-- error-column: 1 -->
+<!-- error-kind: undefined_variable -->
+<!-- error-message: missing -->
+```
+
+Available error directives:
+- `<!-- error-line: N -->` -- expected line number (1-based)
+- `<!-- error-column: N -->` -- expected column number (1-based)
+- `<!-- error-kind: name -->` -- expected `ErrorDetail.Kind` enum tag (snake_case)
+- `<!-- error-message: text -->` -- text that must appear in the error message
+
+All four are optional and can be used in any combination. They only apply when the test expects an error.
+
+### Tips
+
+- Trailing whitespace is trimmed from expected output lines
+- Empty lines in expected output are preserved
+- Context is optional; omitting it means empty data
+- Use `"templates"` in context JSON to provide includes
+
+## Writing new tests
+
+1. Choose the most appropriate `.test` file for the feature being tested
+2. Add a test case with a descriptive name
+3. Keep templates minimal -- test one thing per case
+4. For error tests, include error detail assertions when possible
+5. Run `zig build test` to verify
+
+### Naming conventions
+
+Test names should be lowercase, descriptive, and grouped by feature:
+
+```html
+<!-- test: var with dotted path -->
+<!-- test: var with missing default -->
+<!-- test: var with chained transforms -->
+```
+
+### Edge case testing
+
+Edge cases go in `test/edge.test`. This file covers:
+- Empty and whitespace-only templates
+- Unicode and emoji in values
+- Very long values
+- Deeply nested structures
+- Adjacent template elements with no whitespace
+
+## Fuzz testing
+
+`src/fuzz.zig` contains two fuzz targets:
+
+1. **Parser fuzz** -- sends random bytes to `Parser.parse()`, verifying it never crashes
+2. **Renderer fuzz** -- parses then renders random input with empty context
+
+Fuzz targets use `std.testing.fuzz` with seed corpora of representative template strings. Run with `zig build fuzz`.
+
+## Benchmarks
+
+`src/bench.zig` measures four operations on a realistic template:
+
+| Benchmark | What it measures |
+|-----------|------------------|
+| Parse | `Parser.parse()` on a template with loops and conditionals |
+| Render | `Renderer.render()` with 10 data items |
+| Cached render | `Engine.renderTemplate()` using pre-cached IR |
+| Full pipeline | `Engine.render()` including parse + render |
+
+Run with `zig build bench` (compiles with ReleaseFast).
+
+## Test file list
+
+| File | Coverage |
+|------|----------|
+| `var.test` | `t-var`: escaping, defaults, transforms, dotted paths |
+| `raw.test` | `t-raw`: unescaped output, transforms |
+| `transform.test` | All 20 built-in transforms |
+| `conditional.test` | `t-if`, `t-elif`, `t-else`: equality, existence, nesting |
+| `loop.test` | `t-for`: lists, sort, limit/offset, metadata |
+| `slot.test` | `t-slot`, `t-define`: named slots, defaults |
+| `extend.test` | `t-extend`: inheritance chains, slot overrides |
+| `include.test` | `t-include`: attributes, nested includes |
+| `let.test` | `t-let`: variable capture, transforms |
+| `comment.test` | `t-comment`: stripped from output |
+| `bind.test` | `t-var:`, `t-attr:` attribute bindings |
+| `nesting.test` | Complex nested combinations |
+| `error.test` | Error conditions with detail assertions |
+| `integration.test` | Multi-feature scenarios |
+| `edge.test` | Boundary conditions and unusual inputs |

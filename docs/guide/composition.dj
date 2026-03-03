@@ -1,0 +1,150 @@
+# Composition
+
+Toupee supports template inheritance and component inclusion for building reusable layouts.
+
+## `<t-extend>` -- template inheritance
+
+Extend a parent template by filling its slots:
+
+```html
+{# page.html #}
+<t-extend template="base.html">
+<t-define name="title">My Page</t-define>
+<t-define name="">
+<p>Page content goes here</p>
+</t-define>
+```
+
+The parent template defines insertion points with `<t-slot>`:
+
+```html
+{# base.html #}
+<html>
+<head><title><t-slot name="title" /></title></head>
+<body><t-slot /></body>
+</html>
+```
+
+Output:
+
+```html
+<html>
+<head><title>My Page</title></head>
+<body><p>Page content goes here</p></body>
+</html>
+```
+
+## `<t-slot>` -- insertion points
+
+Slots define where child content is inserted. The anonymous slot (`<t-slot />`) receives content from `<t-define name="">`. Named slots use `<t-slot name="..." />`.
+
+Slots can have default content:
+
+```html
+<footer><t-slot name="footer">Default Footer</t-slot></footer>
+```
+
+If the extending template doesn't define "footer", the default content renders.
+
+## `<t-define>` -- filling slots
+
+Used inside `<t-extend>` and `<t-include>` to provide content for named slots:
+
+```html
+<t-extend template="layout.html">
+<t-define name="head"><title>Page</title></t-define>
+<t-define name="">Body content</t-define>
+```
+
+The anonymous slot is filled with `name=""`. Each slot name can only be defined once; duplicates cause a `DuplicateSlotDefinition` error.
+
+## `<t-include>` -- components
+
+Include a template as a component:
+
+```html
+<t-include template="button.html" label="Click Me" variant="primary" />
+```
+
+The included template accesses attributes with `<t-attr>`:
+
+```html
+{# button.html #}
+<button class="btn" t-attr:data-variant="variant">
+<t-attr name="label" />
+</button>
+```
+
+Include with body content uses slots:
+
+```html
+<t-include template="card.html">
+<t-define name="title"><h2>Card Title</h2></t-define>
+<p>Card body content</p>
+</t-include>
+```
+
+```html
+{# card.html #}
+<div class="card">
+<t-slot name="title" />
+<t-slot />
+</div>
+```
+
+## `<t-attr>` -- include attributes
+
+Output an attribute value passed to an include:
+
+```html
+<t-attr name="label" />
+```
+
+If the attribute wasn't passed, `<t-attr>` outputs nothing.
+
+## Attribute binding
+
+Bind data or include attributes to HTML attributes:
+
+```html
+{# t-var: binds a context variable #}
+<a t-var:href="url">Link</a>
+
+{# t-attr: binds an include attribute #}
+<div t-attr:class="variant">Content</div>
+```
+
+If the variable or attribute is missing, the HTML attribute is omitted entirely:
+
+```html
+{# With url="/about" #}
+<a href="/about">Link</a>
+
+{# Without url #}
+<a>Link</a>
+```
+
+## Multi-level inheritance
+
+Templates can form chains: `page.html` extends `base.html`, and `article.html` extends `page.html`. Each level uses different named slots:
+
+```html
+{# base.html #}
+<html><t-slot name="body" /></html>
+
+{# page.html extends base.html #}
+<t-extend template="base.html">
+<t-define name="body"><main><t-slot name="content" /></main></t-define>
+
+{# article.html extends page.html #}
+<t-extend template="page.html">
+<t-define name="content"><article>...</article></t-define>
+```
+
+## Edge cases
+
+- Missing template returns a `TemplateNotFound` error
+- Circular extends (A extends B, B extends A) return a `CircularReference` error
+- Include attributes are scoped: inner includes don't see outer include attributes
+- Context variables pass through to included templates
+- Duplicate `<t-define>` for the same slot name causes `DuplicateSlotDefinition`
