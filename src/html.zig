@@ -79,46 +79,6 @@ pub fn appendEscaped(a: Allocator, out: *std.ArrayList(u8), value: []const u8) R
     }
 }
 
-/// Parse all attributes from a tag, excluding the `template` attribute.
-/// Used for extracting include attributes passed to child templates.
-pub fn parseTagAttrs(a: Allocator, tag: []const u8) RenderError!std.StringArrayHashMapUnmanaged([]const u8) {
-    var attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{};
-    errdefer attrs.deinit(a);
-
-    var i: usize = 1;
-    while (i < tag.len and tag[i] != ' ' and tag[i] != '/' and tag[i] != '>') : (i += 1) {}
-
-    while (i < tag.len) {
-        while (i < tag.len and tag[i] == ' ') : (i += 1) {}
-        if (i >= tag.len or tag[i] == '/' or tag[i] == '>') break;
-
-        const name_start = i;
-        while (i < tag.len and tag[i] != '=' and tag[i] != ' ' and tag[i] != '/' and tag[i] != '>') : (i += 1) {}
-        const attr_name = tag[name_start..i];
-
-        if (i < tag.len and tag[i] == '=') {
-            i += 1;
-            if (i < tag.len and tag[i] == '"') {
-                i += 1;
-                const val_start = i;
-                while (i < tag.len and tag[i] != '"') : (i += 1) {}
-                const attr_value = tag[val_start..i];
-                if (i < tag.len) i += 1;
-
-                if (!std.mem.eql(u8, attr_name, "template")) {
-                    try attrs.put(a, attr_name, attr_value);
-                }
-            }
-        } else {
-            if (!std.mem.eql(u8, attr_name, "template")) {
-                try attrs.put(a, attr_name, "");
-            }
-        }
-    }
-
-    return attrs;
-}
-
 /// Find the matching close tag for a nesting-aware search.
 /// open_tag is the prefix that increments nesting (e.g. `<t-for `).
 /// close_tag is the exact string to match at nesting zero.

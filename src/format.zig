@@ -41,48 +41,54 @@ pub fn prettyPrint(a: Allocator, input: []const u8) RenderError![]u8 {
             while (i < input.len and (input[i] == ' ' or input[i] == '\t')) : (i += 1) {}
             continue;
         }
-
         if (input[i] == '<') {
-            const tag_start = i;
-            var j = i + 1;
-            while (j < input.len and input[j] != '>') : (j += 1) {}
-            if (j < input.len) j += 1;
-            const tag = input[tag_start..j];
-
-            const is_close = tag.len > 1 and tag[1] == '/';
-            const is_self_closing = tag.len > 2 and tag[tag.len - 2] == '/';
-            const is_doctype = tag.len > 1 and tag[1] == '!';
-            const tag_name = extractTagName(tag);
-
-            if (is_close) {
-                if (depth > 0) depth -= 1;
-            }
-
-            if (at_line_start) {
-                for (0..depth * 2) |_| try out.append(a, ' ');
-            }
-
-            try out.appendSlice(a, tag);
-
-            if (!is_close and !is_self_closing and !is_doctype) {
-                if (tag_name) |name| {
-                    if (!isVoidElement(name)) depth += 1;
-                }
-            }
-
+            const result = try handleTag(a, input, i, &depth, at_line_start, &out);
+            i = result.pos;
             at_line_start = false;
-            i = j;
-        } else {
-            if (at_line_start) {
-                for (0..depth * 2) |_| try out.append(a, ' ');
-                at_line_start = false;
-            }
-            try out.append(a, input[i]);
-            i += 1;
+            continue;
         }
+        if (at_line_start) {
+            try writeIndent(a, &out, depth);
+            at_line_start = false;
+        }
+        try out.append(a, input[i]);
+        i += 1;
     }
 
     return try out.toOwnedSlice(a);
+}
+
+fn handleTag(
+    a: Allocator,
+    input: []const u8,
+    i: usize,
+    depth: *usize,
+    at_line_start: bool,
+    out: *std.ArrayList(u8),
+) RenderError!struct { pos: usize } {
+    var j = i + 1;
+    while (j < input.len and input[j] != '>') : (j += 1) {}
+    if (j < input.len) j += 1;
+    const tag = input[i..j];
+
+    const is_close = tag.len > 1 and tag[1] == '/';
+    const is_self_closing = tag.len > 2 and tag[tag.len - 2] == '/';
+    const is_doctype = tag.len > 1 and tag[1] == '!';
+
+    if (is_close and depth.* > 0) depth.* -= 1;
+    if (at_line_start) try writeIndent(a, out, depth.*);
+    try out.appendSlice(a, tag);
+
+    if (!is_close and !is_self_closing and !is_doctype) {
+        if (extractTagName(tag)) |name| {
+            if (!isVoidElement(name)) depth.* += 1;
+        }
+    }
+    return .{ .pos = j };
+}
+
+fn writeIndent(a: Allocator, out: *std.ArrayList(u8), depth: usize) RenderError!void {
+    for (0..depth * 2) |_| try out.append(a, ' ');
 }
 
 // ---- Tests ----

@@ -60,20 +60,18 @@ fn parseExtend(a: Allocator, input: []const u8) ParseError![]const Node {
     const template_name = h.extractAttrValue(tag, "template") orelse
         return error.MalformedElement;
 
-    const defines = try parseDefineBlocks(a, input[tag_end + 1 ..]);
-
+    const result = try parseDefines(a, input[tag_end + 1 ..]);
     var nodes: std.ArrayList(Node) = .{};
     try nodes.append(a, .{ .extend = .{
         .template = template_name,
-        .defines = defines,
+        .defines = result.defines,
     } });
     return nodes.toOwnedSlice(a);
 }
 
-fn parseContent(a: Allocator, input: []const u8) ParseError![]const Node {
-    const var_bind = comptime prefix ++ "var:";
-    const attr_bind = comptime prefix ++ "attr:";
+// ---- Content parsing ----
 
+fn parseContent(a: Allocator, input: []const u8) ParseError![]const Node {
     var nodes: std.ArrayList(Node) = .{};
     var text_start: usize = 0;
     var i: usize = 0;
@@ -85,44 +83,58 @@ fn parseContent(a: Allocator, input: []const u8) ParseError![]const Node {
         }
         if (matchElement(input[i..])) |elem| {
             try flushText(a, &nodes, input, text_start, i);
-            i = switch (elem) {
-                .t_var => try parseVarOrRaw(a, input, i, &nodes, true),
-                .t_raw => try parseVarOrRaw(a, input, i, &nodes, false),
-                .t_let => try parseLet(a, input, i, &nodes),
-                .t_comment => blk: {
-                    const pos = try parseComment(input, i);
-                    try nodes.append(a, .comment);
-                    break :blk pos;
-                },
-                .t_attr => try parseAttrOutput(a, input, i, &nodes),
-                .t_slot => try parseSlot(a, input, i, &nodes),
-                .t_include => try parseInclude(a, input, i, &nodes),
-                .t_for => try parseFor(a, input, i, &nodes),
-                .t_if => try parseConditional(a, input, i, &nodes),
-                .t_else, .t_elif => return error.MalformedElement,
-            };
+            i = try dispatchElement(a, input, i, &nodes, elem);
             text_start = i;
             continue;
         }
-        if (i + 1 < input.len and input[i + 1] != '/' and input[i + 1] != '!') {
-            if (h.findTagEnd(input[i..])) |end_offset| {
-                const tag = input[i .. i + end_offset + 1];
-                if (std.mem.indexOf(u8, tag, var_bind) != null or
-                    std.mem.indexOf(u8, tag, attr_bind) != null)
-                {
-                    try flushText(a, &nodes, input, text_start, i);
-                    try parseBoundTag(a, tag, &nodes);
-                    i += end_offset + 1;
-                    text_start = i;
-                    continue;
-                }
-            }
+        if (findBoundTagEnd(input, i)) |end_offset| {
+            try flushText(a, &nodes, input, text_start, i);
+            try parseBoundTag(a, input[i .. i + end_offset + 1], &nodes);
+            i += end_offset + 1;
+            text_start = i;
+            continue;
         }
         i += 1;
     }
 
     try flushText(a, &nodes, input, text_start, input.len);
     return nodes.toOwnedSlice(a);
+}
+
+fn dispatchElement(
+    a: Allocator,
+    input: []const u8,
+    start: usize,
+    nodes: *std.ArrayList(Node),
+    elem: Element,
+) ParseError!usize {
+    return switch (elem) {
+        .t_var => parseVarOrRaw(a, input, start, nodes, true),
+        .t_raw => parseVarOrRaw(a, input, start, nodes, false),
+        .t_let => parseLet(a, input, start, nodes),
+        .t_comment => blk: {
+            const pos = try parseComment(input, start);
+            try nodes.append(a, .comment);
+            break :blk pos;
+        },
+        .t_attr => parseAttrOutput(a, input, start, nodes),
+        .t_slot => parseSlot(a, input, start, nodes),
+        .t_include => parseInclude(a, input, start, nodes),
+        .t_for => parseFor(a, input, start, nodes),
+        .t_if => parseConditional(a, input, start, nodes),
+        .t_else, .t_elif => error.MalformedElement,
+    };
+}
+
+fn findBoundTagEnd(input: []const u8, pos: usize) ?usize {
+    if (pos + 1 >= input.len or input[pos + 1] == '/' or input[pos + 1] == '!') return null;
+    const end_offset = h.findTagEnd(input[pos..]) orelse return null;
+    const tag = input[pos .. pos + end_offset + 1];
+    const var_bind = comptime prefix ++ "var:";
+    const attr_bind = comptime prefix ++ "attr:";
+    if (std.mem.indexOf(u8, tag, var_bind) == null and
+        std.mem.indexOf(u8, tag, attr_bind) == null) return null;
+    return end_offset;
 }
 
 const Element = enum { t_var, t_raw, t_let, t_comment, t_attr, t_slot, t_include, t_for, t_if, t_else, t_elif };
@@ -158,6 +170,8 @@ fn flushText(a: Allocator, nodes: *std.ArrayList(Node), input: []const u8, start
     if (end > start) try nodes.append(a, .{ .text = input[start..end] });
 }
 
+// ---- Element parsers ----
+
 fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), escape: bool) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
@@ -165,7 +179,7 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
     const tag = rest[0 .. tag_end + 1];
 
     const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
-    const transform = try parseTransformAttr(a, tag);
+    const xform = try parseTransformAttr(a, tag);
 
     var consumed: usize = tag_end + 1;
     var default_body: []const Node = &.{};
@@ -173,16 +187,14 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
 
     if (!is_self_closing) {
         has_body = true;
-        const var_close = comptime closeTag("var");
-        const raw_close = comptime closeTag("raw");
-        const close_str: []const u8 = if (escape) var_close else raw_close;
+        const close_str: []const u8 = if (escape) comptime closeTag("var") else comptime closeTag("raw");
         const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], close_str) orelse
             return error.MalformedElement;
         default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos]);
         consumed = tag_end + 1 + close_pos + close_str.len;
     }
 
-    const variable: N.Variable = .{ .name = name, .transform = transform, .default_body = default_body, .has_body = has_body };
+    const variable: N.Variable = .{ .name = name, .transform = xform, .default_body = default_body, .has_body = has_body };
     try nodes.append(a, if (escape) .{ .variable = variable } else .{ .raw_variable = variable });
     return start + consumed;
 }
@@ -192,14 +204,14 @@ fn parseLet(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const tag = rest[0 .. tag_end + 1];
     const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
-    const transform = try parseTransformAttr(a, tag);
+    const xform = try parseTransformAttr(a, tag);
 
     const let_close = comptime closeTag("let");
     const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], let_close) orelse
         return error.MalformedElement;
     const body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos]);
 
-    try nodes.append(a, .{ .let_binding = .{ .name = name, .transform = transform, .body = body } });
+    try nodes.append(a, .{ .let_binding = .{ .name = name, .transform = xform, .body = body } });
     return start + tag_end + 1 + close_pos + let_close.len;
 }
 
@@ -253,39 +265,24 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
     const attrs = try parseTagAttrList(a, tag);
 
     var consumed: usize = tag_end + 1;
-    var defines: []const N.Define = &.{};
-    var anonymous_body: []const Node = &.{};
-    var anonymous_body_source: []const u8 = "";
+    var result: DefineResult = .{};
 
     if (!is_self_closing) {
         const include_close = comptime closeTag("include");
         const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], include_close) orelse
             return error.MalformedElement;
         const raw_body = rest[tag_end + 1 .. tag_end + 1 + close_pos];
-        const strip_result = try indent_mod.stripCommonIndent(a, raw_body);
-        const body = strip_result.slice;
+        const strip = try indent_mod.stripCommonIndent(a, raw_body);
         consumed = tag_end + 1 + close_pos + include_close.len;
-
-        if (body.len > 0) {
-            const define_open = openTag("define");
-            if (std.mem.indexOf(u8, body, define_open) != null) {
-                const parts = try parseIncludeBody(a, body);
-                defines = parts.defines;
-                anonymous_body = parts.anonymous_body;
-                anonymous_body_source = parts.anonymous_body_source;
-            } else {
-                anonymous_body = try parseContent(a, body);
-                anonymous_body_source = try a.dupe(u8, body);
-            }
-        }
+        if (strip.slice.len > 0) result = try parseDefines(a, strip.slice);
     }
 
     try nodes.append(a, .{ .include = .{
         .template = tmpl_name,
         .attrs = attrs,
-        .defines = defines,
-        .anonymous_body = anonymous_body,
-        .anonymous_body_source = anonymous_body_source,
+        .defines = result.defines,
+        .anonymous_body = result.anonymous_body,
+        .anonymous_body_source = result.anonymous_body_source,
     } });
     return start + consumed;
 }
@@ -294,52 +291,62 @@ fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const tag = rest[0 .. tag_end + 1];
-    const for_open = openTag("for");
-
-    const item_prefix = blk: {
-        const space = std.mem.indexOfPos(u8, tag, for_open.len, " ") orelse
-            return error.MalformedElement;
-        break :blk tag[for_open.len..space];
-    };
-
-    const collection = blk: {
-        const in_tok = std.mem.indexOf(u8, tag, " in ") orelse return error.MalformedElement;
-        const after_in = in_tok + 4;
-        var end: usize = after_in;
-        while (end < tag.len and tag[end] != ' ' and tag[end] != '>' and tag[end] != '/') : (end += 1) {}
-        break :blk tag[after_in..end];
-    };
-
-    const alias: ?[]const u8 = blk: {
-        const in_tok = std.mem.indexOf(u8, tag, " in ") orelse break :blk null;
-        const as_tok = std.mem.indexOfPos(u8, tag, in_tok + 4, " as ") orelse break :blk null;
-        const after_as = as_tok + 4;
-        var end: usize = after_as;
-        while (end < tag.len and tag[end] != ' ' and tag[end] != '>' and tag[end] != '/') : (end += 1) {}
-        if (end > after_as) break :blk tag[after_as..end];
-        break :blk null;
-    };
-
-    const limit = try parseUintAttr(tag, "limit");
-    const offset = try parseUintAttr(tag, "offset");
+    const attrs = try parseForAttrs(tag);
 
     const body_start = start + tag_end + 1;
     const for_close = comptime closeTag("for");
-    const close_offset = h.findMatchingClose(input[body_start..], for_open, for_close) orelse
+    const close_offset = h.findMatchingClose(input[body_start..], openTag("for"), for_close) orelse
         return error.MalformedElement;
     const body = try parseContent(a, input[body_start .. body_start + close_offset]);
 
     try nodes.append(a, .{ .loop = .{
-        .item_prefix = item_prefix,
-        .collection = collection,
-        .alias = alias,
-        .sort_field = h.extractAttrValue(tag, "sort"),
-        .order_desc = if (h.extractAttrValue(tag, "order")) |o| std.mem.eql(u8, o, "desc") else false,
-        .limit = limit,
-        .offset = offset,
+        .item_prefix = attrs.item_prefix,
+        .collection = attrs.collection,
+        .alias = attrs.alias,
+        .sort_field = attrs.sort_field,
+        .order_desc = attrs.order_desc,
+        .limit = attrs.limit,
+        .offset = attrs.offset,
         .body = body,
     } });
     return body_start + close_offset + for_close.len;
+}
+
+const ForAttrs = struct {
+    item_prefix: []const u8,
+    collection: []const u8,
+    alias: ?[]const u8,
+    sort_field: ?[]const u8,
+    order_desc: bool,
+    limit: ?usize,
+    offset: ?usize,
+};
+
+fn parseForAttrs(tag: []const u8) ParseError!ForAttrs {
+    const for_open = openTag("for");
+    const space = std.mem.indexOfPos(u8, tag, for_open.len, " ") orelse
+        return error.MalformedElement;
+    const in_tok = std.mem.indexOf(u8, tag, " in ") orelse return error.MalformedElement;
+    const alias: ?[]const u8 = blk: {
+        const as_tok = std.mem.indexOfPos(u8, tag, in_tok + 4, " as ") orelse break :blk null;
+        const word = extractWord(tag, as_tok + 4);
+        break :blk if (word.len > 0) word else null;
+    };
+    return .{
+        .item_prefix = tag[for_open.len..space],
+        .collection = extractWord(tag, in_tok + 4),
+        .alias = alias,
+        .sort_field = h.extractAttrValue(tag, "sort"),
+        .order_desc = if (h.extractAttrValue(tag, "order")) |o| std.mem.eql(u8, o, "desc") else false,
+        .limit = try parseUintAttr(tag, "limit"),
+        .offset = try parseUintAttr(tag, "offset"),
+    };
+}
+
+fn extractWord(input: []const u8, start: usize) []const u8 {
+    var end = start;
+    while (end < input.len and input[end] != ' ' and input[end] != '>' and input[end] != '/') : (end += 1) {}
+    return input[start..end];
 }
 
 fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
@@ -348,13 +355,23 @@ fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.A
     const if_tag = rest[0 .. tag_end + 1];
     const body_start = tag_end + 1;
 
-    const if_open = openTag("if");
     const if_close = comptime closeTag("if");
-    const close_pos = h.findMatchingClose(rest[body_start..], if_open, if_close) orelse
+    const close_pos = h.findMatchingClose(rest[body_start..], openTag("if"), if_close) orelse
         return error.MalformedElement;
     const full_body = rest[body_start .. body_start + close_pos];
-    const total_end = start + body_start + close_pos + if_close.len;
+    const result = try parseBranches(a, if_tag, full_body);
 
+    try nodes.append(a, .{ .conditional = .{
+        .branches = result.branches,
+        .else_body = result.else_body,
+    } });
+    return start + body_start + close_pos + if_close.len;
+}
+
+fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8) ParseError!struct {
+    branches: []const N.Branch,
+    else_body: []const Node,
+} {
     var branches: std.ArrayList(N.Branch) = .{};
     const first_sep = findConditionalSeparator(full_body, 0);
     const if_body_source = if (first_sep) |sep| full_body[0..sep.pos] else full_body;
@@ -374,10 +391,10 @@ fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.A
             const elif_tag = full_body[cursor.pos .. cursor.pos + cursor.tag_len];
             const next_start = cursor.pos + cursor.tag_len;
             const next_sep = findConditionalSeparator(full_body, next_start);
-            const elif_body_src = if (next_sep) |ns| full_body[next_start..ns.pos] else full_body[next_start..];
+            const body_src = if (next_sep) |ns| full_body[next_start..ns.pos] else full_body[next_start..];
             try branches.append(a, .{
                 .condition = parseCondition(elif_tag),
-                .body = try parseContent(a, elif_body_src),
+                .body = try parseContent(a, body_src),
             });
             if (next_sep) |ns| {
                 cursor = ns;
@@ -385,49 +402,25 @@ fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.A
         }
     }
 
-    try nodes.append(a, .{ .conditional = .{
+    return .{
         .branches = try branches.toOwnedSlice(a),
         .else_body = else_body,
-    } });
-    return total_end;
+    };
 }
 
 fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node)) ParseError!void {
-    const var_binding = comptime prefix ++ "var:";
-    const attr_binding = comptime prefix ++ "attr:";
     var segments: std.ArrayList(N.Segment) = .{};
     var literal_start: usize = 0;
     var i: usize = 0;
 
     while (i < tag.len) {
         if (i > 0 and tag[i] == ' ' and i + 1 < tag.len) {
-            const after = tag[i + 1 ..];
-            const binding: ?struct { len: usize, is_var: bool } =
-                if (std.mem.startsWith(u8, after, var_binding))
-                .{ .len = var_binding.len, .is_var = true }
-            else if (std.mem.startsWith(u8, after, attr_binding))
-                .{ .len = attr_binding.len, .is_var = false }
-            else
-                null;
-
-            if (binding) |b| {
+            if (matchBinding(tag[i + 1 ..])) |b| {
                 if (i > literal_start) try segments.append(a, .{ .literal = tag[literal_start..i] });
-                var j = i + 1 + b.len;
-                const attr_start = j;
-                while (j < tag.len and tag[j] != '=') : (j += 1) {}
-                const html_attr = tag[attr_start..j];
-                j += 2;
-                const ref_start = j;
-                while (j < tag.len and tag[j] != '"') : (j += 1) {}
-                const ref_name = tag[ref_start..j];
-                j += 1;
-                try segments.append(a, .{ .binding = .{
-                    .html_attr = html_attr,
-                    .ref_name = ref_name,
-                    .is_var = b.is_var,
-                } });
-                i = j;
-                literal_start = j;
+                const result = extractBinding(tag, i + 1, b);
+                try segments.append(a, result.segment);
+                i = result.end;
+                literal_start = i;
                 continue;
             }
         }
@@ -438,16 +431,43 @@ fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node)) Par
     try nodes.append(a, .{ .bound_tag = .{ .segments = try segments.toOwnedSlice(a) } });
 }
 
-const IncludeBodyParts = struct {
-    defines: []const N.Define,
-    anonymous_body: []const Node,
-    anonymous_body_source: []const u8,
+const BindingMatch = struct { len: usize, is_var: bool };
+
+fn matchBinding(input: []const u8) ?BindingMatch {
+    const var_binding = comptime prefix ++ "var:";
+    const attr_binding = comptime prefix ++ "attr:";
+    if (std.mem.startsWith(u8, input, var_binding)) return .{ .len = var_binding.len, .is_var = true };
+    if (std.mem.startsWith(u8, input, attr_binding)) return .{ .len = attr_binding.len, .is_var = false };
+    return null;
+}
+
+fn extractBinding(tag: []const u8, bind_start: usize, b: BindingMatch) struct { segment: N.Segment, end: usize } {
+    var j = bind_start + b.len;
+    const attr_start = j;
+    while (j < tag.len and tag[j] != '=') : (j += 1) {}
+    const html_attr = tag[attr_start..j];
+    j += 2;
+    const ref_start = j;
+    while (j < tag.len and tag[j] != '"') : (j += 1) {}
+    const ref_name = tag[ref_start..j];
+    j += 1;
+    return .{
+        .segment = .{ .binding = .{ .html_attr = html_attr, .ref_name = ref_name, .is_var = b.is_var } },
+        .end = j,
+    };
+}
+
+// ---- Define block parsing (shared between extend and include) ----
+
+const DefineResult = struct {
+    defines: []const N.Define = &.{},
+    anonymous_body: []const Node = &.{},
+    anonymous_body_source: []const u8 = "",
 };
 
-fn parseIncludeBody(a: Allocator, body: []const u8) ParseError!IncludeBodyParts {
+fn parseDefines(a: Allocator, body: []const u8) ParseError!DefineResult {
     const define_open = openTag("define");
     const define_close = comptime closeTag("define");
-
     var defines: std.ArrayList(N.Define) = .{};
     var seen_names: std.ArrayList([]const u8) = .{};
     var anon_parts: std.ArrayList(u8) = .{};
@@ -455,24 +475,13 @@ fn parseIncludeBody(a: Allocator, body: []const u8) ParseError!IncludeBodyParts 
 
     while (i < body.len) {
         if (std.mem.startsWith(u8, body[i..], define_open)) {
-            const rest = body[i..];
-            const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
-            const tag = rest[0 .. tag_end + 1];
-            const name = h.extractAttrValue(tag, "name") orelse
-                h.extractAttrValue(tag, "slot") orelse
-                return error.MalformedElement;
+            const result = try parseSingleDefine(a, body[i..], define_close);
             for (seen_names.items) |seen| {
-                if (std.mem.eql(u8, seen, name)) return error.DuplicateSlotDefinition;
+                if (std.mem.eql(u8, seen, result.name)) return error.DuplicateSlotDefinition;
             }
-            try seen_names.append(a, name);
-            const content_start = tag_end + 1;
-            const close = std.mem.indexOf(u8, rest[content_start..], define_close) orelse
-                return error.MalformedElement;
-            const raw = rest[content_start .. content_start + close];
-            const stripped = try indent_mod.stripCommonIndent(a, raw);
-            const raw_source = try a.dupe(u8, stripped.slice);
-            try defines.append(a, .{ .name = name, .body = try parseContent(a, stripped.slice), .raw_source = raw_source });
-            i += content_start + close + define_close.len;
+            try seen_names.append(a, result.name);
+            try defines.append(a, result.define);
+            i += result.consumed;
         } else {
             try anon_parts.append(a, body[i]);
             i += 1;
@@ -480,53 +489,39 @@ fn parseIncludeBody(a: Allocator, body: []const u8) ParseError!IncludeBodyParts 
     }
 
     const trimmed = std.mem.trim(u8, anon_parts.items, " \t\r\n");
-    const anonymous_body: []const Node = if (trimmed.len > 0)
-        try parseContent(a, trimmed)
-    else
-        &.{};
-    const anonymous_body_source: []const u8 = if (trimmed.len > 0)
-        try a.dupe(u8, trimmed)
-    else
-        "";
-
     return .{
         .defines = try defines.toOwnedSlice(a),
-        .anonymous_body = anonymous_body,
-        .anonymous_body_source = anonymous_body_source,
+        .anonymous_body = if (trimmed.len > 0) try parseContent(a, trimmed) else &.{},
+        .anonymous_body_source = if (trimmed.len > 0) try a.dupe(u8, trimmed) else "",
     };
 }
 
-fn parseDefineBlocks(a: Allocator, input: []const u8) ParseError![]const N.Define {
-    const define_open = openTag("define");
-    const define_close = comptime closeTag("define");
-    var defines: std.ArrayList(N.Define) = .{};
-    var i: usize = 0;
+const ParsedDefine = struct {
+    define: N.Define,
+    name: []const u8,
+    consumed: usize,
+};
 
-    while (i < input.len) {
-        i += h.skipWhitespace(input[i..]);
-        if (i >= input.len) break;
-        if (std.mem.startsWith(u8, input[i..], define_open)) {
-            const rest = input[i..];
-            const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
-            const tag = rest[0 .. tag_end + 1];
-            const name = h.extractAttrValue(tag, "name") orelse
-                h.extractAttrValue(tag, "slot") orelse
-                return error.MalformedElement;
-            const content_start = tag_end + 1;
-            const close = std.mem.indexOf(u8, rest[content_start..], define_close) orelse
-                return error.MalformedElement;
-            const raw = rest[content_start .. content_start + close];
-            const stripped = try indent_mod.stripCommonIndent(a, raw);
-            const raw_source = try a.dupe(u8, stripped.slice);
-            try defines.append(a, .{ .name = name, .body = try parseContent(a, stripped.slice), .raw_source = raw_source });
-            i += content_start + close + define_close.len;
-        } else {
-            i += 1;
-        }
-    }
-
-    return defines.toOwnedSlice(a);
+fn parseSingleDefine(a: Allocator, rest: []const u8, define_close: []const u8) ParseError!ParsedDefine {
+    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag = rest[0 .. tag_end + 1];
+    const name = h.extractAttrValue(tag, "name") orelse
+        h.extractAttrValue(tag, "slot") orelse
+        return error.MalformedElement;
+    const content_start = tag_end + 1;
+    const close = std.mem.indexOf(u8, rest[content_start..], define_close) orelse
+        return error.MalformedElement;
+    const raw = rest[content_start .. content_start + close];
+    const stripped = try indent_mod.stripCommonIndent(a, raw);
+    const raw_source = try a.dupe(u8, stripped.slice);
+    return .{
+        .define = .{ .name = name, .body = try parseContent(a, stripped.slice), .raw_source = raw_source },
+        .name = name,
+        .consumed = content_start + close + define_close.len,
+    };
 }
+
+// ---- Condition parsing ----
 
 fn parseCondition(tag: []const u8) N.Condition {
     if (h.extractAttrValue(tag, "var")) |name| {
@@ -548,6 +543,8 @@ fn parseComparison(tag: []const u8) N.Condition.Comparison {
     return .exists;
 }
 
+// ---- Attribute and transform parsing ----
+
 fn parseTransformAttr(a: Allocator, tag: []const u8) ParseError![]const N.TransformStep {
     const spec = h.extractAttrValue(tag, "transform") orelse return &.{};
     return parseTransformSpec(a, spec);
@@ -557,9 +554,9 @@ fn parseTransformSpec(a: Allocator, spec: []const u8) ParseError![]const N.Trans
     var steps: std.ArrayList(N.TransformStep) = .{};
     var pipe_iter = std.mem.splitScalar(u8, spec, '|');
 
-    while (pipe_iter.next()) |transform| {
-        if (transform.len == 0) continue;
-        var colon_iter = std.mem.splitScalar(u8, transform, ':');
+    while (pipe_iter.next()) |xform| {
+        if (xform.len == 0) continue;
+        var colon_iter = std.mem.splitScalar(u8, xform, ':');
         const name = colon_iter.next().?;
         var args: std.ArrayList([]const u8) = .{};
         while (colon_iter.next()) |arg| try args.append(a, arg);
@@ -604,6 +601,8 @@ fn parseUintAttr(tag: []const u8, name: []const u8) ParseError!?usize {
     const val = h.extractAttrValue(tag, name) orelse return null;
     return std.fmt.parseInt(usize, val, 10) catch return error.MalformedElement;
 }
+
+// ---- Conditional separator detection ----
 
 const Separator = struct { pos: usize, tag_len: usize, is_else: bool };
 

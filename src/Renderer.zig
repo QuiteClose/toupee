@@ -12,170 +12,124 @@ const transform = @import("transform.zig");
 const indent_mod = @import("indent.zig");
 const Parser = @import("Parser.zig");
 
-const max_depth = 50;
+pub const Options = struct {
+    max_depth: usize = 50,
+};
 
-pub fn render(a: Allocator, nodes: []const Node, ctx: *const Context, resolver: *const Resolver) RenderError![]const u8 {
-    var owned_data: V.Map = .{};
-    defer owned_data.deinit(a);
-    var it = ctx.data.iterator();
-    while (it.next()) |kv| try owned_data.put(a, kv.key_ptr.*, kv.value_ptr.*);
+const State = struct {
+    a: Allocator,
+    resolver: *const Resolver,
+    max_depth: usize,
+};
+
+pub fn render(
+    caller_a: Allocator,
+    nodes: []const Node,
+    ctx: *const Context,
+    resolver: *const Resolver,
+    options: Options,
+) RenderError![]const u8 {
+    var arena = std.heap.ArenaAllocator.init(caller_a);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     var mutable_ctx: Context = .{
-        .data = owned_data,
+        .data = try copyMap(a, ctx.data),
         .attrs = ctx.attrs,
         .slots = ctx.slots,
         .err_detail = ctx.err_detail,
     };
-    const result = try renderNodes(a, nodes, &mutable_ctx, resolver, 0);
-    owned_data = mutable_ctx.data;
-    return result;
+
+    const state: State = .{ .a = a, .resolver = resolver, .max_depth = options.max_depth };
+    const result = try renderNodes(state, nodes, &mutable_ctx, 0);
+    return try caller_a.dupe(u8, result);
 }
 
-fn renderNodes(a: Allocator, nodes: []const Node, ctx: *Context, resolver: *const Resolver, depth: usize) RenderError![]const u8 {
-    if (depth > max_depth) return error.CircularReference;
+fn renderNodes(state: State, nodes: []const Node, ctx: *Context, depth: usize) RenderError![]const u8 {
+    if (depth > state.max_depth) return error.CircularReference;
 
     var out: std.ArrayList(u8) = .{};
-    errdefer out.deinit(a);
-
-    var let_allocs: std.ArrayList([]const u8) = .{};
-    defer {
-        for (let_allocs.items) |s| a.free(s);
-        let_allocs.deinit(a);
-    }
-
     for (nodes) |node| {
         switch (node) {
-            .text => |text| try out.appendSlice(a, text),
-            .variable => |v| try renderVariable(a, v, ctx, resolver, depth, &out, true),
-            .raw_variable => |v| try renderVariable(a, v, ctx, resolver, depth, &out, false),
-            .let_binding => |lb| try renderLet(a, lb, ctx, resolver, depth, &let_allocs),
+            .text => |text| try out.appendSlice(state.a, text),
+            .variable => |v| try renderVariable(state, v, ctx, depth, &out, true),
+            .raw_variable => |v| try renderVariable(state, v, ctx, depth, &out, false),
+            .let_binding => |lb| try renderLet(state, lb, ctx, depth),
             .comment => {},
-            .attr_output => |ao| try renderAttrOutput(a, ao, ctx, &out),
-            .slot => |s| try renderSlot(a, s, ctx, resolver, depth, &out),
-            .include => |inc| try renderInclude(a, inc, ctx, resolver, depth, &out),
-            .extend => |ext| try renderExtend(a, ext, ctx, resolver, depth, &out),
-            .conditional => |cond| try renderConditional(a, cond, ctx, resolver, depth, &out),
-            .loop => |loop| try renderLoop(a, loop, ctx, resolver, depth, &out),
-            .bound_tag => |bt| try renderBoundTag(a, bt, ctx, &out),
+            .attr_output => |ao| try renderAttrOutput(state, ao, ctx, &out),
+            .slot => |s| try renderSlot(state, s, ctx, depth, &out),
+            .include => |inc| try renderInclude(state, inc, ctx, depth, &out),
+            .extend => |ext| try renderExtend(state, ext, ctx, depth, &out),
+            .conditional => |cond| try renderConditional(state, cond, ctx, depth, &out),
+            .loop => |loop| try renderLoop(state, loop, ctx, depth, &out),
+            .bound_tag => |bt| try renderBoundTag(state, bt, ctx, &out),
         }
     }
 
-    return out.toOwnedSlice(a);
+    return out.toOwnedSlice(state.a);
 }
 
+// ---- Element renderers ----
+
 fn renderVariable(
-    a: Allocator,
+    state: State,
     v: N.Variable,
     ctx: *Context,
-    resolver: *const Resolver,
     depth: usize,
     out: *std.ArrayList(u8),
     escape: bool,
 ) RenderError!void {
     var value: []const u8 = "";
-    var value_allocated = false;
 
     if (ctx.resolveString(v.name)) |val| {
         value = val;
     } else if (v.has_body) {
-        if (v.default_body.len > 0) {
-            value = try renderNodes(a, v.default_body, ctx, resolver, depth);
-            value_allocated = true;
-        }
+        if (v.default_body.len > 0) value = try renderNodes(state, v.default_body, ctx, depth);
     } else if (v.transform.len > 0 and hasDefaultTransform(v.transform)) {
         // default transform will provide the value
     } else {
         setErrorDetail(ctx, v.name);
         return error.UndefinedVariable;
     }
-    defer if (value_allocated) a.free(value);
 
-    if (v.transform.len > 0) {
-        const transformed = try applyTransforms(a, value, v.transform);
-        defer a.free(transformed);
-        if (escape) try h.appendEscaped(a, out, transformed) else try out.appendSlice(a, transformed);
-    } else if (value_allocated) {
-        try out.appendSlice(a, value);
-    } else if (escape) {
-        try h.appendEscaped(a, out, value);
-    } else {
-        try out.appendSlice(a, value);
-    }
+    if (v.transform.len > 0) value = try applyTransforms(state.a, value, v.transform);
+    if (escape) try h.appendEscaped(state.a, out, value) else try out.appendSlice(state.a, value);
 }
 
-fn renderLet(
-    a: Allocator,
-    lb: N.LetBinding,
-    ctx: *Context,
-    resolver: *const Resolver,
-    depth: usize,
-    let_allocs: *std.ArrayList([]const u8),
-) RenderError!void {
-    const rendered = try renderNodes(a, lb.body, ctx, resolver, depth);
-    if (lb.transform.len > 0) {
-        const transformed = try applyTransforms(a, rendered, lb.transform);
-        a.free(rendered);
-        try let_allocs.append(a, transformed);
-        try ctx.putData(a, lb.name, .{ .string = transformed });
-    } else {
-        try let_allocs.append(a, rendered);
-        try ctx.putData(a, lb.name, .{ .string = rendered });
-    }
+fn renderLet(state: State, lb: N.LetBinding, ctx: *Context, depth: usize) RenderError!void {
+    var rendered = try renderNodes(state, lb.body, ctx, depth);
+    if (lb.transform.len > 0) rendered = try applyTransforms(state.a, rendered, lb.transform);
+    try ctx.putData(state.a, lb.name, .{ .string = rendered });
 }
 
-fn renderAttrOutput(a: Allocator, ao: N.AttrOutput, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
-    if (ctx.getAttr(ao.name)) |value| try h.appendEscaped(a, out, value);
+fn renderAttrOutput(state: State, ao: N.AttrOutput, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
+    if (ctx.getAttr(ao.name)) |value| try h.appendEscaped(state.a, out, value);
 }
 
-fn renderSlot(
-    a: Allocator,
-    s: N.Slot,
-    ctx: *Context,
-    resolver: *const Resolver,
-    depth: usize,
-    out: *std.ArrayList(u8),
-) RenderError!void {
-    const indent = try a.dupe(u8, indent_mod.detectIndent(out.items));
-    defer a.free(indent);
-
+fn renderSlot(state: State, s: N.Slot, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
+    const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
     if (ctx.getSlot(s.name)) |content| {
-        const parse_result = Parser.parse(a, content) catch return error.MalformedElement;
-        const rendered = try renderNodes(a, parse_result.nodes, ctx, resolver, depth);
-        defer a.free(rendered);
-        try indent_mod.appendIndented(a, out, rendered, indent);
+        const parse_result = Parser.parse(state.a, content) catch return error.MalformedElement;
+        const rendered = try renderNodes(state, parse_result.nodes, ctx, depth);
+        try indent_mod.appendIndented(state.a, out, rendered, indent);
     } else if (s.default_body.len > 0) {
-        const rendered = try renderNodes(a, s.default_body, ctx, resolver, depth);
-        defer a.free(rendered);
-        try indent_mod.appendIndented(a, out, rendered, indent);
+        const rendered = try renderNodes(state, s.default_body, ctx, depth);
+        try indent_mod.appendIndented(state.a, out, rendered, indent);
     }
 }
 
-fn renderInclude(
-    a: Allocator,
-    inc: N.Include,
-    ctx: *Context,
-    resolver: *const Resolver,
-    depth: usize,
-    out: *std.ArrayList(u8),
-) RenderError!void {
-    const tmpl_content = resolver.get(inc.template) orelse {
+fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
+    const tmpl_content = state.resolver.get(inc.template) orelse {
         setErrorDetail(ctx, inc.template);
         return error.TemplateNotFound;
     };
 
     var child_slots: std.StringArrayHashMapUnmanaged([]const u8) = .{};
-    defer child_slots.deinit(a);
-
-    for (inc.defines) |def| {
-        try child_slots.put(a, def.name, def.raw_source);
-    }
-    if (inc.anonymous_body_source.len > 0) {
-        try child_slots.put(a, "", inc.anonymous_body_source);
-    }
+    for (inc.defines) |def| try child_slots.put(state.a, def.name, def.raw_source);
+    if (inc.anonymous_body_source.len > 0) try child_slots.put(state.a, "", inc.anonymous_body_source);
 
     var inc_attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{};
-    defer inc_attrs.deinit(a);
-    for (inc.attrs) |attr| try inc_attrs.put(a, attr.name, attr.value);
+    for (inc.attrs) |attr| try inc_attrs.put(state.a, attr.name, attr.value);
 
     var child_ctx: Context = .{
         .data = ctx.data,
@@ -184,101 +138,77 @@ fn renderInclude(
         .err_detail = ctx.err_detail,
     };
 
-    const indent = try a.dupe(u8, indent_mod.detectIndent(out.items));
-    defer a.free(indent);
-
-    const tmpl_parse = Parser.parse(a, tmpl_content) catch return error.MalformedElement;
-    const rendered = try renderNodes(a, tmpl_parse.nodes, &child_ctx, resolver, depth + 1);
-    defer a.free(rendered);
-    try indent_mod.appendIndented(a, out, rendered, indent);
+    const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
+    const tmpl_parse = Parser.parse(state.a, tmpl_content) catch return error.MalformedElement;
+    const rendered = try renderNodes(state, tmpl_parse.nodes, &child_ctx, depth + 1);
+    try indent_mod.appendIndented(state.a, out, rendered, indent);
 }
 
-fn renderExtend(
-    a: Allocator,
-    ext: N.Extend,
-    ctx: *Context,
-    resolver: *const Resolver,
-    depth: usize,
-    out: *std.ArrayList(u8),
-) RenderError!void {
-    var slots: std.StringArrayHashMapUnmanaged([]const u8) = .{};
-    defer slots.deinit(a);
+fn renderExtend(state: State, ext: N.Extend, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
+    var slots = try buildSlotMap(state.a, ctx, ext.defines);
+    const rendered = try resolveExtendChain(state, ext.template, ctx, &slots, depth);
+    try out.appendSlice(state.a, rendered);
+}
 
+fn buildSlotMap(a: Allocator, ctx: *const Context, defines: []const N.Define) RenderError!std.StringArrayHashMapUnmanaged([]const u8) {
+    var slots: std.StringArrayHashMapUnmanaged([]const u8) = .{};
     var sit = ctx.slots.iterator();
     while (sit.next()) |entry| try slots.put(a, entry.key_ptr.*, entry.value_ptr.*);
+    for (defines) |def| try slots.put(a, def.name, def.raw_source);
+    return slots;
+}
 
-    for (ext.defines) |def| {
-        try slots.put(a, def.name, def.raw_source);
-    }
-
+fn resolveExtendChain(
+    state: State,
+    initial_template: []const u8,
+    ctx: *Context,
+    slots: *std.StringArrayHashMapUnmanaged([]const u8),
+    depth: usize,
+) RenderError![]const u8 {
     var visited: std.StringArrayHashMapUnmanaged(void) = .{};
-    defer visited.deinit(a);
-    try visited.put(a, ext.template, {});
-
-    var current_name = ext.template;
-    var current_source = resolver.get(current_name) orelse {
-        setErrorDetail(ctx, current_name);
-        return error.TemplateNotFound;
-    };
+    try visited.put(state.a, initial_template, {});
+    var current_source = resolveTemplate(state, ctx, initial_template) orelse return error.TemplateNotFound;
 
     while (true) {
-        const parent_parse = Parser.parse(a, current_source) catch return error.MalformedElement;
-        if (parent_parse.nodes.len == 0) break;
-
-        if (parent_parse.nodes[0] != .extend) {
-            var render_ctx: Context = .{
-                .data = ctx.data,
-                .attrs = ctx.attrs,
-                .slots = slots,
-                .err_detail = ctx.err_detail,
-            };
-            const rendered = try renderNodes(a, parent_parse.nodes, &render_ctx, resolver, depth);
-            defer a.free(rendered);
-            try out.appendSlice(a, rendered);
-            return;
-        }
+        const parent_parse = Parser.parse(state.a, current_source) catch return error.MalformedElement;
+        if (parent_parse.nodes.len == 0) return "";
+        if (parent_parse.nodes[0] != .extend) return renderExtendLeaf(state, parent_parse.nodes, ctx, slots, depth);
 
         const parent_ext = parent_parse.nodes[0].extend;
         if (visited.contains(parent_ext.template)) {
             setErrorDetail(ctx, parent_ext.template);
             return error.CircularReference;
         }
-        try visited.put(a, parent_ext.template, {});
-
+        try visited.put(state.a, parent_ext.template, {});
         for (parent_ext.defines) |def| {
-            if (!slots.contains(def.name)) {
-                try slots.put(a, def.name, def.raw_source);
-            }
+            if (!slots.contains(def.name)) try slots.put(state.a, def.name, def.raw_source);
         }
-
-        current_name = parent_ext.template;
-        current_source = resolver.get(current_name) orelse {
-            setErrorDetail(ctx, current_name);
-            return error.TemplateNotFound;
-        };
+        current_source = resolveTemplate(state, ctx, parent_ext.template) orelse return error.TemplateNotFound;
     }
 }
 
-fn renderConditional(
-    a: Allocator,
-    cond: N.Conditional,
-    ctx: *Context,
-    resolver: *const Resolver,
-    depth: usize,
-    out: *std.ArrayList(u8),
-) RenderError!void {
+fn renderExtendLeaf(state: State, nodes: []const Node, ctx: *Context, slots: *std.StringArrayHashMapUnmanaged([]const u8), depth: usize) RenderError![]const u8 {
+    var render_ctx: Context = .{ .data = ctx.data, .attrs = ctx.attrs, .slots = slots.*, .err_detail = ctx.err_detail };
+    return renderNodes(state, nodes, &render_ctx, depth);
+}
+
+fn resolveTemplate(state: State, ctx: *Context, name: []const u8) ?[]const u8 {
+    if (state.resolver.get(name)) |content| return content;
+    setErrorDetail(ctx, name);
+    return null;
+}
+
+fn renderConditional(state: State, cond: N.Conditional, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
     for (cond.branches) |branch| {
         if (evaluateCondition(branch.condition, ctx)) {
-            const rendered = try renderNodes(a, branch.body, ctx, resolver, depth);
-            defer a.free(rendered);
-            try out.appendSlice(a, rendered);
+            const rendered = try renderNodes(state, branch.body, ctx, depth);
+            try out.appendSlice(state.a, rendered);
             return;
         }
     }
     if (cond.else_body.len > 0) {
-        const rendered = try renderNodes(a, cond.else_body, ctx, resolver, depth);
-        defer a.free(rendered);
-        try out.appendSlice(a, rendered);
+        const rendered = try renderNodes(state, cond.else_body, ctx, depth);
+        try out.appendSlice(state.a, rendered);
     }
 }
 
@@ -311,64 +241,17 @@ fn evalComparison(comparison: N.Condition.Comparison, value: ?[]const u8) bool {
     };
 }
 
-fn renderLoop(
-    a: Allocator,
-    loop: N.Loop,
-    ctx: *Context,
-    resolver: *const Resolver,
-    depth: usize,
-    out: *std.ArrayList(u8),
-) RenderError!void {
+fn renderLoop(state: State, loop: N.Loop, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
     const resolved = ctx.resolve(loop.collection) orelse return;
     const list = resolved.asList() orelse return;
-
-    const items = try a.dupe(V.Value, list);
-    defer a.free(items);
-
-    if (loop.sort_field) |field| {
-        const Sort = struct {
-            field_name: []const u8,
-            descending: bool,
-
-            pub fn lessThan(self: @This(), lhs: V.Value, rhs: V.Value) bool {
-                const a_val = if (lhs.resolve(self.field_name)) |v| v.asString() orelse "" else "";
-                const b_val = if (rhs.resolve(self.field_name)) |v| v.asString() orelse "" else "";
-                const cmp = std.mem.order(u8, a_val, b_val);
-                if (self.descending) return cmp == .gt;
-                return cmp == .lt;
-            }
-        };
-        std.mem.sort(V.Value, items, Sort{ .field_name = field, .descending = loop.order_desc }, Sort.lessThan);
-    }
-
-    const off = if (loop.offset) |o| @min(o, items.len) else 0;
-    const sliced = items[off..];
-    const final = if (loop.limit) |l| sliced[0..@min(l, sliced.len)] else sliced;
+    const items = try state.a.dupe(V.Value, list);
+    if (loop.sort_field) |field| sortItems(items, field, loop.order_desc);
+    const final = applyLimitOffset(items, loop.limit, loop.offset);
 
     for (final, 0..) |item, idx| {
-        var child_data: V.Map = .{};
-        defer child_data.deinit(a);
-        var dit = ctx.data.iterator();
-        while (dit.next()) |kv| try child_data.put(a, kv.key_ptr.*, kv.value_ptr.*);
-
-        try child_data.put(a, loop.item_prefix, item);
-
-        var allocs: std.ArrayList([]const u8) = .{};
-        defer {
-            for (allocs.items) |s| a.free(s);
-            allocs.deinit(a);
-        }
-
-        if (loop.alias) |alias| {
-            var alias_map: V.Map = .{};
-            const idx_str = try std.fmt.allocPrint(a, "{d}", .{idx});
-            try allocs.append(a, idx_str);
-            const num_str = try std.fmt.allocPrint(a, "{d}", .{idx + 1});
-            try allocs.append(a, num_str);
-            try alias_map.put(a, "index", .{ .string = idx_str });
-            try alias_map.put(a, "number", .{ .string = num_str });
-            try child_data.put(a, alias, .{ .map = alias_map });
-        }
+        var child_data = try copyMap(state.a, ctx.data);
+        try child_data.put(state.a, loop.item_prefix, item);
+        if (loop.alias) |alias| try putAliasMetadata(state.a, &child_data, alias, idx);
 
         var child_ctx: Context = .{
             .data = child_data,
@@ -376,30 +259,65 @@ fn renderLoop(
             .slots = ctx.slots,
             .err_detail = ctx.err_detail,
         };
-
-        const rendered = try renderNodes(a, loop.body, &child_ctx, resolver, depth + 1);
-        defer a.free(rendered);
-        try out.appendSlice(a, rendered);
+        const rendered = try renderNodes(state, loop.body, &child_ctx, depth + 1);
+        try out.appendSlice(state.a, rendered);
     }
 }
 
-fn renderBoundTag(a: Allocator, bt: N.BoundTag, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
+fn sortItems(items: []V.Value, field: []const u8, descending: bool) void {
+    const Sort = struct {
+        field_name: []const u8,
+        desc: bool,
+        pub fn lessThan(self: @This(), lhs: V.Value, rhs: V.Value) bool {
+            const a_val = if (lhs.resolve(self.field_name)) |v| v.asString() orelse "" else "";
+            const b_val = if (rhs.resolve(self.field_name)) |v| v.asString() orelse "" else "";
+            const cmp = std.mem.order(u8, a_val, b_val);
+            if (self.desc) return cmp == .gt;
+            return cmp == .lt;
+        }
+    };
+    std.mem.sort(V.Value, items, Sort{ .field_name = field, .desc = descending }, Sort.lessThan);
+}
+
+fn applyLimitOffset(items: []V.Value, limit: ?usize, offset: ?usize) []V.Value {
+    const off = if (offset) |o| @min(o, items.len) else 0;
+    const sliced = items[off..];
+    return if (limit) |l| sliced[0..@min(l, sliced.len)] else sliced;
+}
+
+fn copyMap(a: Allocator, source: V.Map) RenderError!V.Map {
+    var result: V.Map = .{};
+    var it = source.iterator();
+    while (it.next()) |kv| try result.put(a, kv.key_ptr.*, kv.value_ptr.*);
+    return result;
+}
+
+fn putAliasMetadata(a: Allocator, data: *V.Map, alias: []const u8, idx: usize) RenderError!void {
+    var alias_map: V.Map = .{};
+    try alias_map.put(a, "index", .{ .string = try std.fmt.allocPrint(a, "{d}", .{idx}) });
+    try alias_map.put(a, "number", .{ .string = try std.fmt.allocPrint(a, "{d}", .{idx + 1}) });
+    try data.put(a, alias, .{ .map = alias_map });
+}
+
+fn renderBoundTag(state: State, bt: N.BoundTag, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
     for (bt.segments) |segment| {
         switch (segment) {
-            .literal => |text| try out.appendSlice(a, text),
+            .literal => |text| try out.appendSlice(state.a, text),
             .binding => |b| {
                 const value = if (b.is_var) ctx.resolveString(b.ref_name) else ctx.getAttr(b.ref_name);
                 if (value) |v| {
-                    try out.append(a, ' ');
-                    try out.appendSlice(a, b.html_attr);
-                    try out.appendSlice(a, "=\"");
-                    try h.appendEscaped(a, out, v);
-                    try out.append(a, '"');
+                    try out.append(state.a, ' ');
+                    try out.appendSlice(state.a, b.html_attr);
+                    try out.appendSlice(state.a, "=\"");
+                    try h.appendEscaped(state.a, out, v);
+                    try out.append(state.a, '"');
                 }
             },
         }
     }
 }
+
+// ---- Transform helpers ----
 
 fn hasDefaultTransform(steps: []const N.TransformStep) bool {
     for (steps) |step| {
@@ -410,14 +328,9 @@ fn hasDefaultTransform(steps: []const N.TransformStep) bool {
 
 fn applyTransforms(a: Allocator, value: []const u8, steps: []const N.TransformStep) RenderError![]u8 {
     var current = try a.dupe(u8, value);
-    errdefer a.free(current);
-
     for (steps) |step| {
-        const next = try applyOne(a, current, step.name, step.args);
-        if (next.ptr != current.ptr) a.free(current);
-        current = next;
+        current = try applyOne(a, current, step.name, step.args);
     }
-
     return current;
 }
 
@@ -457,7 +370,6 @@ fn capitalizeTransform(a: Allocator, value: []const u8) RenderError![]u8 {
 
 fn slugifyTransform(a: Allocator, value: []const u8) RenderError![]u8 {
     var result: std.ArrayList(u8) = .{};
-    errdefer result.deinit(a);
     var prev_hyphen = true;
     for (value) |c| {
         if (std.ascii.isAlphanumeric(c)) {
@@ -483,7 +395,6 @@ fn replaceTransform(a: Allocator, value: []const u8, args: []const []const u8) R
     const old = args[0];
     const new = if (args.len > 1) args[1] else "";
     var result: std.ArrayList(u8) = .{};
-    errdefer result.deinit(a);
     var i: usize = 0;
     while (i < value.len) {
         if (old.len > 0 and i + old.len <= value.len and std.mem.eql(u8, value[i .. i + old.len], old)) {
@@ -514,7 +425,7 @@ test "render plain text" {
     const nodes = [_]Node{.{ .text = "hello" }};
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("hello", result);
 }
@@ -525,7 +436,7 @@ test "render variable" {
     try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("Hello", result);
 }
@@ -536,7 +447,7 @@ test "render variable escapes html" {
     try ctx.putData(testing.allocator, "v", .{ .string = "<b>bold</b>" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("&lt;b&gt;bold&lt;/b&gt;", result);
 }
@@ -547,7 +458,7 @@ test "render raw variable" {
     try ctx.putData(testing.allocator, "v", .{ .string = "<b>bold</b>" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("<b>bold</b>", result);
 }
@@ -556,7 +467,7 @@ test "render undefined variable is error" {
     const nodes = [_]Node{.{ .variable = .{ .name = "missing" } }};
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = render(testing.allocator, &nodes, &ctx, &resolver, .{});
     try testing.expectError(error.UndefinedVariable, result);
 }
 
@@ -565,7 +476,7 @@ test "render variable with default body" {
     const nodes = [_]Node{.{ .variable = .{ .name = "missing", .default_body = &default_body, .has_body = true } }};
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("Fallback", result);
 }
@@ -581,7 +492,7 @@ test "render conditional true branch" {
     try ctx.putData(testing.allocator, "show", .{ .string = "1" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("yes", result);
 }
@@ -596,7 +507,7 @@ test "render conditional else branch" {
     const nodes = [_]Node{.{ .conditional = .{ .branches = &branches, .else_body = &else_body } }};
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("no", result);
 }
@@ -612,7 +523,7 @@ test "render bound tag" {
     try ctx.putData(testing.allocator, "url", .{ .string = "/home" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("<a href=\"/home\">", result);
 }
@@ -621,7 +532,7 @@ test "render comment produces no output" {
     const nodes = [_]Node{ .{ .text = "a" }, .comment, .{ .text = "b" } };
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try render(testing.allocator, &nodes, &ctx, &resolver);
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("ab", result);
 }

@@ -68,8 +68,19 @@ pub fn appendIndented(a: Allocator, out: *std.ArrayList(u8), content: []const u8
 pub fn stripCommonIndent(a: Allocator, content: []const u8) RenderError!IndentResult {
     if (content.len == 0) return .{ .slice = "", .allocated = false };
 
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines = try splitLines(a, content);
     defer lines.deinit(a);
+
+    const content_lines = trimBlankLines(lines.items);
+    if (content_lines.len == 0) return .{ .slice = "", .allocated = false };
+
+    const strip = findMinIndent(content_lines);
+    if (strip == 0 and content_lines.len == 1) return .{ .slice = content_lines[0], .allocated = false };
+    return .{ .slice = try joinLinesStripped(a, content_lines, strip), .allocated = true };
+}
+
+fn splitLines(a: Allocator, content: []const u8) !std.ArrayList([]const u8) {
+    var lines: std.ArrayList([]const u8) = .{};
     var line_start: usize = 0;
     var j: usize = 0;
     while (j <= content.len) : (j += 1) {
@@ -78,58 +89,49 @@ pub fn stripCommonIndent(a: Allocator, content: []const u8) RenderError!IndentRe
             line_start = j + 1;
         }
     }
+    return lines;
+}
 
-    var first_content: usize = 0;
-    while (first_content < lines.items.len) : (first_content += 1) {
-        if (html.isContentLine(lines.items[first_content])) break;
+fn trimBlankLines(lines: []const []const u8) []const []const u8 {
+    var first: usize = 0;
+    while (first < lines.len) : (first += 1) {
+        if (html.isContentLine(lines[first])) break;
     }
-    var last_content: usize = lines.items.len;
-    while (last_content > first_content) {
-        last_content -= 1;
-        if (html.isContentLine(lines.items[last_content])) {
-            last_content += 1;
+    var last: usize = lines.len;
+    while (last > first) {
+        last -= 1;
+        if (html.isContentLine(lines[last])) {
+            last += 1;
             break;
         }
     }
-    if (first_content >= last_content) return .{ .slice = "", .allocated = false };
+    if (first >= last) return lines[0..0];
+    return lines[first..last];
+}
 
-    const content_lines = lines.items[first_content..last_content];
-
+fn findMinIndent(lines: []const []const u8) usize {
     var min_indent: ?usize = null;
-    for (content_lines) |line| {
+    for (lines) |line| {
         if (!html.isContentLine(line)) continue;
         var ws: usize = 0;
         while (ws < line.len and (line[ws] == ' ' or line[ws] == '\t')) : (ws += 1) {}
         if (min_indent == null or ws < min_indent.?) min_indent = ws;
     }
+    return min_indent orelse 0;
+}
 
-    const strip = min_indent orelse 0;
-
-    if (strip == 0 and content_lines.len == 1) {
-        return .{ .slice = content_lines[0], .allocated = false };
-    }
-    if (strip == 0) {
-        var out: std.ArrayList(u8) = .{};
-        errdefer out.deinit(a);
-        for (content_lines, 0..) |line, idx| {
-            if (idx > 0) try out.append(a, '\n');
-            try out.appendSlice(a, line);
-        }
-        return .{ .slice = try out.toOwnedSlice(a), .allocated = true };
-    }
-
+fn joinLinesStripped(a: Allocator, lines: []const []const u8, strip: usize) RenderError![]const u8 {
     var out: std.ArrayList(u8) = .{};
     errdefer out.deinit(a);
-    for (content_lines, 0..) |line, idx| {
+    for (lines, 0..) |line, idx| {
         if (idx > 0) try out.append(a, '\n');
-        if (html.isContentLine(line)) {
-            if (line.len > strip) {
-                try out.appendSlice(a, line[strip..]);
-            }
+        if (strip > 0 and html.isContentLine(line)) {
+            if (line.len > strip) try out.appendSlice(a, line[strip..]);
+        } else {
+            try out.appendSlice(a, line);
         }
     }
-
-    return .{ .slice = try out.toOwnedSlice(a), .allocated = true };
+    return try out.toOwnedSlice(a);
 }
 
 // ---- Tests ----
