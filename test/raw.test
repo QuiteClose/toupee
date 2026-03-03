@@ -2,7 +2,7 @@
 <!-- in -->
 <p><t-raw name="content" /></p>
 <!-- context -->
-{"vars": {"content": "Hello"}}
+{"data": {"content": "Hello"}}
 <!-- out -->
 <p>Hello</p>
 
@@ -10,7 +10,7 @@
 <!-- in -->
 <t-raw name="content" />
 <!-- context -->
-{"vars": {"content": "<b>bold</b>"}}
+{"data": {"content": "<b>bold</b>"}}
 <!-- out -->
 <b>bold</b>
 
@@ -18,7 +18,7 @@
 <!-- in -->
 <t-raw name="v" />
 <!-- context -->
-{"vars": {"v": "Tom & Jerry <\"quotes\">"}}
+{"data": {"v": "Tom & Jerry <\"quotes\">"}}
 <!-- out -->
 Tom & Jerry <"quotes">
 
@@ -37,7 +37,7 @@ Tom & Jerry <"quotes">
 <!-- in -->
 <t-raw name="x"><em>fallback</em></t-raw>
 <!-- context -->
-{"vars": {"x": "<strong>real</strong>"}}
+{"data": {"x": "<strong>real</strong>"}}
 <!-- out -->
 <strong>real</strong>
 
@@ -45,7 +45,7 @@ Tom & Jerry <"quotes">
 <!-- in -->
 [<t-raw name="x" />]
 <!-- context -->
-{"vars": {"x": ""}}
+{"data": {"x": ""}}
 <!-- out -->
 []
 

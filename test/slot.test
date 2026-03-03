@@ -46,7 +46,7 @@
 <t-extend template="layout.html">
 <t-define name="title"><t-var name="page.title" /></t-define>
 <!-- context -->
-{"vars": {"page.title": "Hello World"}}
+{"data": {"page": {"title": "Hello World"}}}
 <!-- out -->
 <h1>Hello World</h1>
 

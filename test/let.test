@@ -8,7 +8,7 @@ Hello
 <!-- in -->
 <t-let name="msg"><t-var name="x" /> world</t-let><t-var name="msg" />
 <!-- context -->
-{"vars": {"x": "Hello"}}
+{"data": {"x": "Hello"}}
 <!-- out -->
 Hello world
 
@@ -22,7 +22,7 @@ hello-world
 <!-- in -->
 <t-let name="x">new</t-let><t-var name="x" />
 <!-- context -->
-{"vars": {"x": "old"}}
+{"data": {"x": "old"}}
 <!-- out -->
 new
 

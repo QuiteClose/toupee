@@ -2,7 +2,7 @@
 <!-- in -->
 <t-if var="show"><t-for item in items><t-var name="item.name" />,</t-for></t-if>
 <!-- context -->
-{"vars": {"show": "true"}, "collections": {"items": [{"name": "A"}, {"name": "B"}]}}
+{"data": {"show": "true", "items": [{"name": "A"}, {"name": "B"}]}}
 <!-- out -->
 A,B,
 
@@ -10,7 +10,7 @@ A,B,
 <!-- in -->
 <t-for item in items><t-if var="item.active"><t-var name="item.name" />,</t-if></t-for>
 <!-- context -->
-{"collections": {"items": [{"name": "A", "active": "yes"}, {"name": "B"}, {"name": "C", "active": "yes"}]}}
+{"data": {"items": [{"name": "A", "active": "yes"}, {"name": "B"}, {"name": "C", "active": "yes"}]}}
 <!-- out -->
 A,C,
 
@@ -18,7 +18,7 @@ A,C,
 <!-- in -->
 <t-for group in groups>[<t-for item in items><t-var name="group.label" />:<t-var name="item.val" /> </t-for>]</t-for>
 <!-- context -->
-{"collections": {"groups": [{"label": "X"}], "items": [{"val": "1"}, {"val": "2"}]}}
+{"data": {"groups": [{"label": "X"}], "items": [{"val": "1"}, {"val": "2"}]}}
 <!-- out -->
 [X:1 X:2 ]
 
@@ -28,7 +28,7 @@ A,C,
 <!-- in -->
 <t-for item in items><t-include template="tag.html" label="tag" /></t-for>
 <!-- context -->
-{"collections": {"items": [{"name": "A"}, {"name": "B"}]}}
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}}
 <!-- out -->
 [tag][tag]
 
@@ -38,7 +38,7 @@ A,C,
 <!-- in -->
 <t-include template="list.html" />
 <!-- context -->
-{"collections": {"items": [{"name": "First"}, {"name": "Second"}]}}
+{"data": {"items": [{"name": "First"}, {"name": "Second"}]}}
 <!-- out -->
 <ul><li>First</li><li>Second</li></ul>
 
@@ -49,7 +49,7 @@ A,C,
 <t-extend template="base.html">
 <t-define name=""><t-if var="x">yes<t-else />no</t-if></t-define>
 <!-- context -->
-{"vars": {"x": "1"}}
+{"data": {"x": "1"}}
 <!-- out -->
 <div>yes</div>
 
@@ -57,7 +57,7 @@ A,C,
 <!-- in -->
 <t-let name="prefix">item</t-let><t-for x in items><t-var name="prefix" />:<t-var name="x.v" />,</t-for>
 <!-- context -->
-{"collections": {"items": [{"v": "1"}, {"v": "2"}]}}
+{"data": {"items": [{"v": "1"}, {"v": "2"}]}}
 <!-- out -->
 item:1,item:2,
 
@@ -65,7 +65,7 @@ item:1,item:2,
 <!-- in -->
 <t-if var="x">before<t-comment>hidden</t-comment>after</t-if>
 <!-- context -->
-{"vars": {"x": "yes"}}
+{"data": {"x": "yes"}}
 <!-- out -->
 beforeafter
 
@@ -73,7 +73,7 @@ beforeafter
 <!-- in -->
 <t-if var="a"><t-if var="b"><t-if var="c">deep</t-if></t-if></t-if>
 <!-- context -->
-{"vars": {"a": "1", "b": "2", "c": "3"}}
+{"data": {"a": "1", "b": "2", "c": "3"}}
 <!-- out -->
 deep
 
@@ -81,6 +81,6 @@ deep
 <!-- in -->
 <t-for item in items><t-var name="item.name" transform="upper" />,</t-for>
 <!-- context -->
-{"collections": {"items": [{"name": "hello"}, {"name": "world"}]}}
+{"data": {"items": [{"name": "hello"}, {"name": "world"}]}}
 <!-- out -->
 HELLO,WORLD,

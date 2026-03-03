@@ -2,7 +2,7 @@
 <!-- in -->
 <a t-var:href="url">link</a>
 <!-- context -->
-{"vars": {"url": "/about"}}
+{"data": {"url": "/about"}}
 <!-- out -->
 <a href="/about">link</a>
 
@@ -16,7 +16,7 @@
 <!-- in -->
 <a t-var:href="url">link</a>
 <!-- context -->
-{"vars": {"url": "/search?q=a&b=c"}}
+{"data": {"url": "/search?q=a&b=c"}}
 <!-- out -->
 <a href="/search?q=a&amp;b=c">link</a>
 
@@ -42,7 +42,7 @@
 <!-- in -->
 <a t-var:href="url" t-var:title="label">link</a>
 <!-- context -->
-{"vars": {"url": "/about", "label": "About Us"}}
+{"data": {"url": "/about", "label": "About Us"}}
 <!-- out -->
 <a href="/about" title="About Us">link</a>
 
@@ -52,6 +52,6 @@
 <!-- in -->
 <t-include template="comp.html" style="fancy" />
 <!-- context -->
-{"vars": {"url": "/home"}}
+{"data": {"url": "/home"}}
 <!-- out -->
 <a href="/home" class="fancy">link</a>

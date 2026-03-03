@@ -2,7 +2,7 @@
 <!-- in -->
 <t-var name="x" transform="upper" />
 <!-- context -->
-{"vars": {"x": "hello world"}}
+{"data": {"x": "hello world"}}
 <!-- out -->
 HELLO WORLD
 
@@ -10,7 +10,7 @@ HELLO WORLD
 <!-- in -->
 <t-var name="x" transform="lower" />
 <!-- context -->
-{"vars": {"x": "HELLO WORLD"}}
+{"data": {"x": "HELLO WORLD"}}
 <!-- out -->
 hello world
 
@@ -18,7 +18,7 @@ hello world
 <!-- in -->
 <t-var name="x" transform="capitalize" />
 <!-- context -->
-{"vars": {"x": "hello world"}}
+{"data": {"x": "hello world"}}
 <!-- out -->
 Hello World
 
@@ -26,7 +26,7 @@ Hello World
 <!-- in -->
 <t-var name="x" transform="capitalize" />
 <!-- context -->
-{"vars": {"x": "Hello World"}}
+{"data": {"x": "Hello World"}}
 <!-- out -->
 Hello World
 
@@ -34,7 +34,7 @@ Hello World
 <!-- in -->
 [<t-var name="x" transform="trim" />]
 <!-- context -->
-{"vars": {"x": "  hello  "}}
+{"data": {"x": "  hello  "}}
 <!-- out -->
 [hello]
 
@@ -42,7 +42,7 @@ Hello World
 <!-- in -->
 <t-var name="x" transform="slugify" />
 <!-- context -->
-{"vars": {"x": "Hello World!"}}
+{"data": {"x": "Hello World!"}}
 <!-- out -->
 hello-world
 
@@ -50,7 +50,7 @@ hello-world
 <!-- in -->
 <t-var name="x" transform="slugify" />
 <!-- context -->
-{"vars": {"x": "  Hello   World  "}}
+{"data": {"x": "  Hello   World  "}}
 <!-- out -->
 hello-world
 
@@ -58,7 +58,7 @@ hello-world
 <!-- in -->
 <t-var name="x" transform="truncate:20" />
 <!-- context -->
-{"vars": {"x": "Hello"}}
+{"data": {"x": "Hello"}}
 <!-- out -->
 Hello
 
@@ -66,7 +66,7 @@ Hello
 <!-- in -->
 <t-var name="x" transform="truncate:5" />
 <!-- context -->
-{"vars": {"x": "Hello World"}}
+{"data": {"x": "Hello World"}}
 <!-- out -->
 Hello
 
@@ -74,7 +74,7 @@ Hello
 <!-- in -->
 <t-var name="x" transform="replace:world:earth" />
 <!-- context -->
-{"vars": {"x": "hello world"}}
+{"data": {"x": "hello world"}}
 <!-- out -->
 hello earth
 
@@ -82,7 +82,7 @@ hello earth
 <!-- in -->
 <t-var name="x" transform="replace:a:b" />
 <!-- context -->
-{"vars": {"x": "abracadabra"}}
+{"data": {"x": "abracadabra"}}
 <!-- out -->
 bbrbcbdbbrb
 
@@ -96,7 +96,7 @@ fallback
 <!-- in -->
 <t-var name="x" transform="default:fallback" />
 <!-- context -->
-{"vars": {"x": "real"}}
+{"data": {"x": "real"}}
 <!-- out -->
 real
 
@@ -104,7 +104,7 @@ real
 <!-- in -->
 <t-var name="x" transform="trim|upper" />
 <!-- context -->
-{"vars": {"x": "  hello  "}}
+{"data": {"x": "  hello  "}}
 <!-- out -->
 HELLO
 
@@ -112,7 +112,7 @@ HELLO
 <!-- in -->
 <t-var name="x" transform="lower|slugify" />
 <!-- context -->
-{"vars": {"x": "My Blog Post!"}}
+{"data": {"x": "My Blog Post!"}}
 <!-- out -->
 my-blog-post
 
@@ -120,7 +120,7 @@ my-blog-post
 <!-- in -->
 <t-raw name="x" transform="upper" />
 <!-- context -->
-{"vars": {"x": "<b>bold</b>"}}
+{"data": {"x": "<b>bold</b>"}}
 <!-- out -->
 <B>BOLD</B>
 
@@ -128,7 +128,7 @@ my-blog-post
 <!-- in -->
 <t-var name="x" transform="upper" />
 <!-- context -->
-{"vars": {"x": "a&b"}}
+{"data": {"x": "a&b"}}
 <!-- out -->
 A&amp;B
 
@@ -136,13 +136,13 @@ A&amp;B
 <!-- in -->
 <t-var name="x" transform="bogus" />
 <!-- context -->
-{"vars": {"x": "test"}}
+{"data": {"x": "test"}}
 <!-- error: MalformedElement -->
 
 <!-- test: default with empty value uses default -->
 <!-- in -->
 <t-var name="x" transform="default:none" />
 <!-- context -->
-{"vars": {"x": ""}}
+{"data": {"x": ""}}
 <!-- out -->
 none

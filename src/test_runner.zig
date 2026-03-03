@@ -201,9 +201,37 @@ fn trimEnds(s: []const u8) []const u8 {
     return s[start..end];
 }
 
-/// Translation layer: converts the old flat JSON test format into the new
-/// nested Value model. This allows existing .test files to keep working
-/// while the internal Context uses Value.Map.
+/// Merges a JSON object into ctx.data, converting nested objects to Value.Map.
+fn mergeJsonObjectIntoData(a: Allocator, target: *V.Map, obj: std.json.ObjectMap) std.mem.Allocator.Error!void {
+    var it = obj.iterator();
+    while (it.next()) |kv| {
+        const key = try a.dupe(u8, kv.key_ptr.*);
+        const val = try jsonValueToToupeeValue(a, kv.value_ptr.*);
+        try target.put(a, key, val);
+    }
+}
+
+fn jsonValueToToupeeValue(a: Allocator, jv: std.json.Value) std.mem.Allocator.Error!V.Value {
+    return switch (jv) {
+        .string => |s| .{ .string = try a.dupe(u8, s) },
+        .object => |obj| {
+            var m: V.Map = .{};
+            try mergeJsonObjectIntoData(a, &m, obj);
+            return .{ .map = m };
+        },
+        .array => |arr| {
+            const items = try a.alloc(V.Value, arr.items.len);
+            for (arr.items, items) |item, *out| {
+                out.* = try jsonValueToToupeeValue(a, item);
+            }
+            return .{ .list = items };
+        },
+        .bool => |b| .{ .boolean = b },
+        .integer => |i| .{ .integer = i },
+        else => .{ .string = "" },
+    };
+}
+
 fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver: *Resolver) !void {
     const parsed = std.json.parseFromSlice(std.json.Value, a, json_str, .{
         .allocate = .alloc_always,
@@ -216,17 +244,9 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
 
     if (root != .object) return;
 
-    if (root.object.get("vars")) |vars_val| {
-        if (vars_val == .object) {
-            var it = vars_val.object.iterator();
-            while (it.next()) |kv| {
-                const key = try a.dupe(u8, kv.key_ptr.*);
-                const val = switch (kv.value_ptr.*) {
-                    .string => |s| try a.dupe(u8, s),
-                    else => try a.dupe(u8, ""),
-                };
-                try putNestedValue(a, &ctx.data, key, .{ .string = val });
-            }
+    if (root.object.get("data")) |data_val| {
+        if (data_val == .object) {
+            try mergeJsonObjectIntoData(a, &ctx.data, data_val.object);
         }
     }
 
@@ -234,12 +254,10 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (attrs_val == .object) {
             var it = attrs_val.object.iterator();
             while (it.next()) |kv| {
-                const key = try a.dupe(u8, kv.key_ptr.*);
-                const val = switch (kv.value_ptr.*) {
+                try ctx.putAttr(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
-                };
-                try ctx.putAttr(a, key, val);
+                });
             }
         }
     }
@@ -248,43 +266,10 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (slots_val == .object) {
             var it = slots_val.object.iterator();
             while (it.next()) |kv| {
-                const key = try a.dupe(u8, kv.key_ptr.*);
-                const val = switch (kv.value_ptr.*) {
+                try ctx.putSlot(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
-                };
-                try ctx.putSlot(a, key, val);
-            }
-        }
-    }
-
-    if (root.object.get("collections")) |collections_val| {
-        if (collections_val == .object) {
-            var cit = collections_val.object.iterator();
-            while (cit.next()) |ckv| {
-                if (ckv.value_ptr.* != .array) continue;
-                const arr = ckv.value_ptr.array;
-
-                var items = try a.alloc(V.Value, arr.items.len);
-                for (arr.items, 0..) |item, idx| {
-                    if (item == .object) {
-                        var entry_map: V.Map = .{};
-                        var eit = item.object.iterator();
-                        while (eit.next()) |ekv| {
-                            const key = try a.dupe(u8, ekv.key_ptr.*);
-                            const val = switch (ekv.value_ptr.*) {
-                                .string => |s| try a.dupe(u8, s),
-                                else => try a.dupe(u8, ""),
-                            };
-                            try entry_map.put(a, key, .{ .string = val });
-                        }
-                        items[idx] = .{ .map = entry_map };
-                    } else {
-                        items[idx] = .nil;
-                    }
-                }
-                const col_key = try a.dupe(u8, ckv.key_ptr.*);
-                try putNestedValue(a, &ctx.data, col_key, .{ .list = items });
+                });
             }
         }
     }
@@ -293,38 +278,12 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (templates_val == .object) {
             var it = templates_val.object.iterator();
             while (it.next()) |kv| {
-                const key = try a.dupe(u8, kv.key_ptr.*);
-                const val = switch (kv.value_ptr.*) {
+                try resolver.put(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
-                };
-                try resolver.put(a, key, val);
+                });
             }
         }
-    }
-}
-
-/// Converts a flat dot-separated key into nested Value.Map entries.
-/// e.g. putNestedValue(root, "page.title", .{.string = "Hello"}) creates
-/// root["page"] = .{.map = {"title": .{.string = "Hello"}}}
-fn putNestedValue(a: Allocator, root: *V.Map, path: []const u8, value: V.Value) !void {
-    if (std.mem.indexOfScalar(u8, path, '.')) |dot| {
-        const key = path[0..dot];
-        const rest = path[dot + 1 ..];
-        if (root.getPtr(key)) |existing_ptr| {
-            switch (existing_ptr.*) {
-                .map => |*m| {
-                    try putNestedValue(a, m, rest, value);
-                    return;
-                },
-                else => {},
-            }
-        }
-        var nested: V.Map = .{};
-        try putNestedValue(a, &nested, rest, value);
-        try root.put(a, key, .{ .map = nested });
-    } else {
-        try root.put(a, path, value);
     }
 }
 

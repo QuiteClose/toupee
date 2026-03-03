@@ -73,7 +73,7 @@
 <p><t-var name="msg" /></p>
 </t-include>
 <!-- context -->
-{"vars": {"msg": "Hello"}}
+{"data": {"msg": "Hello"}}
 <!-- out -->
 <div><p>Hello</p></div>
 
@@ -83,6 +83,6 @@
 <!-- in -->
 <t-include template="heading.html" />
 <!-- context -->
-{"vars": {"page.title": "My Page"}}
+{"data": {"page": {"title": "My Page"}}}
 <!-- out -->
 <h1>My Page</h1>

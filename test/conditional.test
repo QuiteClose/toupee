@@ -2,7 +2,7 @@
 <!-- in -->
 <t-if var="x">yes</t-if>
 <!-- context -->
-{"vars": {"x": "hello"}}
+{"data": {"x": "hello"}}
 <!-- out -->
 yes
 
@@ -15,7 +15,7 @@ yes
 <!-- in -->
 <t-if var="x">yes</t-if>
 <!-- context -->
-{"vars": {"x": ""}}
+{"data": {"x": ""}}
 <!-- out -->
 yes
 
@@ -23,7 +23,7 @@ yes
 <!-- in -->
 <t-if var="x" equals="hello">match</t-if>
 <!-- context -->
-{"vars": {"x": "hello"}}
+{"data": {"x": "hello"}}
 <!-- out -->
 match
 
@@ -31,14 +31,14 @@ match
 <!-- in -->
 <t-if var="x" equals="hello">match</t-if>
 <!-- context -->
-{"vars": {"x": "world"}}
+{"data": {"x": "world"}}
 <!-- out -->
 
 <!-- test: if var not-equals - true -->
 <!-- in -->
 <t-if var="x" not-equals="hello">different</t-if>
 <!-- context -->
-{"vars": {"x": "world"}}
+{"data": {"x": "world"}}
 <!-- out -->
 different
 
@@ -46,7 +46,7 @@ different
 <!-- in -->
 <t-if var="x" not-equals="hello">different</t-if>
 <!-- context -->
-{"vars": {"x": "hello"}}
+{"data": {"x": "hello"}}
 <!-- out -->
 
 <!-- test: if var not-equals missing is true -->
@@ -65,14 +65,14 @@ missing
 <!-- in -->
 <t-if var="x" not-exists>missing</t-if>
 <!-- context -->
-{"vars": {"x": "hello"}}
+{"data": {"x": "hello"}}
 <!-- out -->
 
 <!-- test: if var not-exists with empty string - strict false -->
 <!-- in -->
 <t-if var="x" not-exists>missing</t-if>
 <!-- context -->
-{"vars": {"x": ""}}
+{"data": {"x": ""}}
 <!-- out -->
 
 <!-- test: if-else -->
@@ -85,7 +85,7 @@ no
 <!-- in -->
 <t-if var="x">yes<t-else />no</t-if>
 <!-- context -->
-{"vars": {"x": "1"}}
+{"data": {"x": "1"}}
 <!-- out -->
 yes
 
@@ -93,7 +93,7 @@ yes
 <!-- in -->
 <t-if var="a">A<t-elif var="b" />B<t-else />C</t-if>
 <!-- context -->
-{"vars": {"b": "yes"}}
+{"data": {"b": "yes"}}
 <!-- out -->
 B
 
@@ -145,7 +145,7 @@ no-sidebar
 <!-- in -->
 <t-if var="a"><t-if var="b">both</t-if></t-if>
 <!-- context -->
-{"vars": {"a": "1", "b": "2"}}
+{"data": {"a": "1", "b": "2"}}
 <!-- out -->
 both
 

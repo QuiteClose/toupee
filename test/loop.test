@@ -2,7 +2,7 @@
 <!-- in -->
 <t-for post in pages.posts><p><t-var name="post.title" /></p></t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "First"}, {"title": "Second"}]}}
+{"data": {"pages": {"posts": [{"title": "First"}, {"title": "Second"}]}}}
 <!-- out -->
 <p>First</p><p>Second</p>
 
@@ -10,7 +10,7 @@
 <!-- in -->
 <t-for post in pages.posts sort="title"><t-var name="post.title" />,</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "Banana"}, {"title": "Apple"}, {"title": "Cherry"}]}}
+{"data": {"pages": {"posts": [{"title": "Banana"}, {"title": "Apple"}, {"title": "Cherry"}]}}}
 <!-- out -->
 Apple,Banana,Cherry,
 
@@ -18,7 +18,7 @@ Apple,Banana,Cherry,
 <!-- in -->
 <t-for post in pages.posts sort="date" order="desc"><t-var name="post.title" />,</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "First", "date": "2024-01-01"}, {"title": "Second", "date": "2024-02-01"}]}}
+{"data": {"pages": {"posts": [{"title": "First", "date": "2024-01-01"}, {"title": "Second", "date": "2024-02-01"}]}}}
 <!-- out -->
 Second,First,
 
@@ -26,7 +26,7 @@ Second,First,
 <!-- in -->
 <t-for post in pages.posts limit="2"><t-var name="post.title" />,</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}
+{"data": {"pages": {"posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}}
 <!-- out -->
 A,B,
 
@@ -34,7 +34,7 @@ A,B,
 <!-- in -->
 <t-for post in pages.posts offset="1"><t-var name="post.title" />,</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}
+{"data": {"pages": {"posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}}
 <!-- out -->
 B,C,
 
@@ -42,7 +42,7 @@ B,C,
 <!-- in -->
 <t-for post in pages.posts offset="1" limit="1"><t-var name="post.title" />,</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}
+{"data": {"pages": {"posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}}
 <!-- out -->
 B,
 
@@ -50,7 +50,7 @@ B,
 <!-- in -->
 <t-for post in pages.posts as loop><t-var name="loop.number" />:<t-var name="post.title" />,</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "First"}, {"title": "Second"}]}}
+{"data": {"pages": {"posts": [{"title": "First"}, {"title": "Second"}]}}}
 <!-- out -->
 1:First,2:Second,
 
@@ -58,7 +58,7 @@ B,
 <!-- in -->
 <t-for post in pages.posts as loop>[<t-var name="loop.index" />]</t-for>
 <!-- context -->
-{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}]}}
+{"data": {"pages": {"posts": [{"title": "A"}, {"title": "B"}]}}}
 <!-- out -->
 [0][1]
 
@@ -72,7 +72,7 @@ B,
 <!-- in -->
 [<t-for post in pages.posts><t-var name="post.title" /></t-for>]
 <!-- context -->
-{"collections": {"pages.posts": []}}
+{"data": {"pages": {"posts": []}}}
 <!-- out -->
 []
 
@@ -80,6 +80,6 @@ B,
 <!-- in -->
 <t-for post in pages.posts><t-var name="site.title" />:<t-var name="post.title" />,</t-for>
 <!-- context -->
-{"vars": {"site.title": "MySite"}, "collections": {"pages.posts": [{"title": "Post"}]}}
+{"data": {"site": {"title": "MySite"}, "pages": {"posts": [{"title": "Post"}]}}}
 <!-- out -->
 MySite:Post,
