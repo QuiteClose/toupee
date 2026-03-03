@@ -1,0 +1,148 @@
+<!-- test: upper transform -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"vars": {"x": "hello world"}}
+<!-- out -->
+HELLO WORLD
+
+<!-- test: lower transform -->
+<!-- in -->
+<t-var name="x" transform="lower" />
+<!-- context -->
+{"vars": {"x": "HELLO WORLD"}}
+<!-- out -->
+hello world
+
+<!-- test: capitalize transform (title case) -->
+<!-- in -->
+<t-var name="x" transform="capitalize" />
+<!-- context -->
+{"vars": {"x": "hello world"}}
+<!-- out -->
+Hello World
+
+<!-- test: capitalize already capitalized -->
+<!-- in -->
+<t-var name="x" transform="capitalize" />
+<!-- context -->
+{"vars": {"x": "Hello World"}}
+<!-- out -->
+Hello World
+
+<!-- test: trim transform -->
+<!-- in -->
+[<t-var name="x" transform="trim" />]
+<!-- context -->
+{"vars": {"x": "  hello  "}}
+<!-- out -->
+[hello]
+
+<!-- test: slugify transform -->
+<!-- in -->
+<t-var name="x" transform="slugify" />
+<!-- context -->
+{"vars": {"x": "Hello World!"}}
+<!-- out -->
+hello-world
+
+<!-- test: slugify with multiple spaces -->
+<!-- in -->
+<t-var name="x" transform="slugify" />
+<!-- context -->
+{"vars": {"x": "  Hello   World  "}}
+<!-- out -->
+hello-world
+
+<!-- test: truncate within limit -->
+<!-- in -->
+<t-var name="x" transform="truncate:20" />
+<!-- context -->
+{"vars": {"x": "Hello"}}
+<!-- out -->
+Hello
+
+<!-- test: truncate exceeding limit no ellipsis -->
+<!-- in -->
+<t-var name="x" transform="truncate:5" />
+<!-- context -->
+{"vars": {"x": "Hello World"}}
+<!-- out -->
+Hello
+
+<!-- test: replace transform -->
+<!-- in -->
+<t-var name="x" transform="replace:world:earth" />
+<!-- context -->
+{"vars": {"x": "hello world"}}
+<!-- out -->
+hello earth
+
+<!-- test: replace all occurrences -->
+<!-- in -->
+<t-var name="x" transform="replace:a:b" />
+<!-- context -->
+{"vars": {"x": "abracadabra"}}
+<!-- out -->
+bbrbcbdbbrb
+
+<!-- test: default transform when missing -->
+<!-- in -->
+<t-var name="missing" transform="default:fallback" />
+<!-- out -->
+fallback
+
+<!-- test: default transform when exists -->
+<!-- in -->
+<t-var name="x" transform="default:fallback" />
+<!-- context -->
+{"vars": {"x": "real"}}
+<!-- out -->
+real
+
+<!-- test: chained transforms -->
+<!-- in -->
+<t-var name="x" transform="trim|upper" />
+<!-- context -->
+{"vars": {"x": "  hello  "}}
+<!-- out -->
+HELLO
+
+<!-- test: chained lower and slugify -->
+<!-- in -->
+<t-var name="x" transform="lower|slugify" />
+<!-- context -->
+{"vars": {"x": "My Blog Post!"}}
+<!-- out -->
+my-blog-post
+
+<!-- test: transform on raw (no escaping) -->
+<!-- in -->
+<t-raw name="x" transform="upper" />
+<!-- context -->
+{"vars": {"x": "<b>bold</b>"}}
+<!-- out -->
+<B>BOLD</B>
+
+<!-- test: transform on var (with escaping) -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"vars": {"x": "a&b"}}
+<!-- out -->
+A&amp;B
+
+<!-- test: unknown transform is error -->
+<!-- in -->
+<t-var name="x" transform="bogus" />
+<!-- context -->
+{"vars": {"x": "test"}}
+<!-- error: MalformedElement -->
+
+<!-- test: default with empty value uses default -->
+<!-- in -->
+<t-var name="x" transform="default:none" />
+<!-- context -->
+{"vars": {"x": ""}}
+<!-- out -->
+none

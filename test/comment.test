@@ -1,0 +1,29 @@
+<!-- test: self-closing comment stripped -->
+<!-- in -->
+before<t-comment />after
+<!-- out -->
+beforeafter
+
+<!-- test: block comment stripped -->
+<!-- in -->
+before<t-comment>this is hidden</t-comment>after
+<!-- out -->
+beforeafter
+
+<!-- test: comment with nested template tags -->
+<!-- in -->
+before<t-comment><t-var name="x" /><t-if var="y">stuff</t-if></t-comment>after
+<!-- out -->
+beforeafter
+
+<!-- test: multiple comments -->
+<!-- in -->
+a<t-comment />b<t-comment>hidden</t-comment>c
+<!-- out -->
+abc
+
+<!-- test: comment preserves surrounding content -->
+<!-- in -->
+<p>Hello</p><t-comment>secret</t-comment><p>World</p>
+<!-- out -->
+<p>Hello</p><p>World</p>

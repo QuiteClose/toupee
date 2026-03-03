@@ -1,0 +1,61 @@
+<!-- test: anonymous slot -->
+<!-- in:wrapper.html -->
+<div><t-slot /></div>
+<!-- in -->
+<t-extend template="wrapper.html">
+<t-define name="">Hello</t-define>
+<!-- context -->
+<!-- out -->
+<div>Hello</div>
+
+<!-- test: named slot -->
+<!-- in:layout.html -->
+<header><t-slot name="title" /></header><main><t-slot /></main>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="title">My Page</t-define>
+<t-define name="">Body content</t-define>
+<!-- context -->
+<!-- out -->
+<header>My Page</header><main>Body content</main>
+
+<!-- test: slot with default content -->
+<!-- in:layout.html -->
+<footer><t-slot name="footer">Default Footer</t-slot></footer>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="">main</t-define>
+<!-- context -->
+<!-- out -->
+<footer>Default Footer</footer>
+
+<!-- test: slot default overridden -->
+<!-- in:layout.html -->
+<footer><t-slot name="footer">Default Footer</t-slot></footer>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="footer">Custom Footer</t-define>
+<!-- context -->
+<!-- out -->
+<footer>Custom Footer</footer>
+
+<!-- test: slot with var in content -->
+<!-- in:layout.html -->
+<h1><t-slot name="title" /></h1>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="title"><t-var name="page.title" /></t-define>
+<!-- context -->
+{"vars": {"page.title": "Hello World"}}
+<!-- out -->
+<h1>Hello World</h1>
+
+<!-- test: self-closing slot with no content renders nothing -->
+<!-- in:layout.html -->
+[<t-slot name="optional" />]
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="">main</t-define>
+<!-- context -->
+<!-- out -->
+[]

@@ -1,0 +1,60 @@
+<!-- test: basic raw output -->
+<!-- in -->
+<p><t-raw name="content" /></p>
+<!-- context -->
+{"vars": {"content": "Hello"}}
+<!-- out -->
+<p>Hello</p>
+
+<!-- test: raw does not escape html -->
+<!-- in -->
+<t-raw name="content" />
+<!-- context -->
+{"vars": {"content": "<b>bold</b>"}}
+<!-- out -->
+<b>bold</b>
+
+<!-- test: raw does not escape entities -->
+<!-- in -->
+<t-raw name="v" />
+<!-- context -->
+{"vars": {"v": "Tom & Jerry <\"quotes\">"}}
+<!-- out -->
+Tom & Jerry <"quotes">
+
+<!-- test: raw missing is error -->
+<!-- in -->
+<t-raw name="missing" />
+<!-- error: UndefinedVariable -->
+
+<!-- test: raw with default body -->
+<!-- in -->
+<t-raw name="missing"><em>fallback</em></t-raw>
+<!-- out -->
+<em>fallback</em>
+
+<!-- test: raw default not used when exists -->
+<!-- in -->
+<t-raw name="x"><em>fallback</em></t-raw>
+<!-- context -->
+{"vars": {"x": "<strong>real</strong>"}}
+<!-- out -->
+<strong>real</strong>
+
+<!-- test: raw with empty string value -->
+<!-- in -->
+[<t-raw name="x" />]
+<!-- context -->
+{"vars": {"x": ""}}
+<!-- out -->
+[]
+
+<!-- test: raw missing name is error -->
+<!-- in -->
+<t-raw />
+<!-- error: MalformedElement -->
+
+<!-- test: raw unclosed block is error -->
+<!-- in -->
+<t-raw name="x">no close
+<!-- error: MalformedElement -->

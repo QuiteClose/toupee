@@ -1,0 +1,79 @@
+<!-- test: blog page with layout -->
+<!-- in:base.html -->
+<html><head><title><t-var name="site.title" /></title></head><body><t-slot /></body></html>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="">
+<h1><t-var name="page.title" /></h1>
+<t-for post in posts><article><h2><t-var name="post.title" /></h2></article></t-for>
+</t-define>
+<!-- context -->
+{"vars": {"site.title": "My Blog", "page.title": "Home"}, "collections": {"posts": [{"title": "First Post"}, {"title": "Second Post"}]}}
+<!-- out -->
+<html><head><title>My Blog</title></head><body><h1>Home</h1>
+<article><h2>First Post</h2></article><article><h2>Second Post</h2></article></body></html>
+
+<!-- test: component composition with include -->
+<!-- in:nav.html -->
+<nav><t-attr name="label" /></nav>
+<!-- in:header.html -->
+<header><t-include template="nav.html" label="Main Nav" /></header>
+<!-- in -->
+<t-include template="header.html" />
+<!-- context -->
+<!-- out -->
+<header><nav>Main Nav</nav></header>
+
+<!-- test: conditional rendering in layout -->
+<!-- in:base.html -->
+<div><t-if var="show_sidebar"><aside>Sidebar</aside></t-if><main><t-slot /></main></div>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="">Content here</t-define>
+<!-- context -->
+{"vars": {"show_sidebar": "yes"}}
+<!-- out -->
+<div><aside>Sidebar</aside><main>Content here</main></div>
+
+<!-- test: conditional rendering hidden -->
+<!-- in:base.html -->
+<div><t-if var="show_sidebar"><aside>Sidebar</aside></t-if><main><t-slot /></main></div>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="">Content here</t-define>
+<!-- context -->
+<!-- out -->
+<div><main>Content here</main></div>
+
+<!-- test: let with transform in layout -->
+<!-- in -->
+<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let><a href="/<t-var name="slug" />"><t-var name="page.title" /></a>
+<!-- context -->
+{"vars": {"page.title": "Hello World"}}
+<!-- out -->
+<a href="/hello-world">Hello World</a>
+
+<!-- test: for with all modifiers -->
+<!-- in -->
+<t-for item in items sort="name" order="desc" offset="1" limit="2" as loop><t-var name="loop.number" />:<t-var name="item.name" />,</t-for>
+<!-- context -->
+{"collections": {"items": [{"name": "apple"}, {"name": "banana"}, {"name": "cherry"}, {"name": "date"}]}}
+<!-- out -->
+1:cherry,2:banana,
+
+<!-- test: empty page renders plain html -->
+<!-- in -->
+<html><body><p>No template elements</p></body></html>
+<!-- out -->
+<html><body><p>No template elements</p></body></html>
+
+<!-- test: raw html injection in slot -->
+<!-- in:base.html -->
+<div><t-slot /></div>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name=""><t-raw name="content" /></t-define>
+<!-- context -->
+{"vars": {"content": "<p>Rich <em>content</em></p>"}}
+<!-- out -->
+<div><p>Rich <em>content</em></p></div>

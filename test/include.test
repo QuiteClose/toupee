@@ -1,0 +1,88 @@
+<!-- test: simple include -->
+<!-- in:nav.html -->
+<nav>Navigation</nav>
+<!-- in -->
+<header><t-include template="nav.html" /></header>
+<!-- context -->
+<!-- out -->
+<header><nav>Navigation</nav></header>
+
+<!-- test: include with attrs -->
+<!-- in:button.html -->
+<button><t-attr name="label" /></button>
+<!-- in -->
+<t-include template="button.html" label="Click Me" />
+<!-- context -->
+<!-- out -->
+<button>Click Me</button>
+
+<!-- test: include with anonymous body -->
+<!-- in:card.html -->
+<div class="card"><t-slot /></div>
+<!-- in -->
+<t-include template="card.html">
+<p>Card content</p>
+</t-include>
+<!-- context -->
+<!-- out -->
+<div class="card"><p>Card content</p></div>
+
+<!-- test: include with named slot -->
+<!-- in:card.html -->
+<div><t-slot name="title" /><t-slot /></div>
+<!-- in -->
+<t-include template="card.html">
+<t-define name="title"><h2>Title</h2></t-define>
+<p>Body</p>
+</t-include>
+<!-- context -->
+<!-- out -->
+<div><h2>Title</h2><p>Body</p></div>
+
+<!-- test: include attrs scope isolation -->
+<!-- in:inner.html -->
+[<t-attr name="x" />]
+<!-- in:outer.html -->
+<t-include template="inner.html" x="inner-val" />
+<!-- in -->
+<t-include template="outer.html" x="outer-val" />
+<!-- context -->
+<!-- out -->
+[inner-val]
+
+<!-- test: include missing template is error -->
+<!-- in -->
+<t-include template="missing.html" />
+<!-- error: TemplateNotFound -->
+
+<!-- test: include duplicate slot is error -->
+<!-- in:card.html -->
+<div><t-slot name="title" /></div>
+<!-- in -->
+<t-include template="card.html">
+<t-define name="title">First</t-define>
+<t-define name="title">Second</t-define>
+</t-include>
+<!-- error: DuplicateSlotDefinition -->
+
+<!-- test: include with var in body -->
+<!-- in:wrap.html -->
+<div><t-slot /></div>
+<!-- in -->
+<t-include template="wrap.html">
+<p><t-var name="msg" /></p>
+</t-include>
+<!-- context -->
+{"vars": {"msg": "Hello"}}
+<!-- out -->
+<div><p>Hello</p></div>
+
+<!-- test: include vars pass through -->
+<!-- in:heading.html -->
+<h1><t-var name="page.title" /></h1>
+<!-- in -->
+<t-include template="heading.html" />
+<!-- context -->
+{"vars": {"page.title": "My Page"}}
+<!-- out -->
+<h1>My Page</h1>

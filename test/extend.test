@@ -1,0 +1,68 @@
+<!-- test: two-level extend -->
+<!-- in:base.html -->
+<html><body><t-slot /></body></html>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="">
+<p>Content</p>
+</t-define>
+<!-- context -->
+<!-- out -->
+<html><body><p>Content</p></body></html>
+
+<!-- test: three-level extend with named slots -->
+<!-- in:base.html -->
+<html><t-slot name="content" /></html>
+<!-- in:page.html -->
+<t-extend template="base.html">
+<t-define name="content"><body><t-slot name="page-body" /></body></t-define>
+<!-- in -->
+<t-extend template="page.html">
+<t-define name="page-body"><p>Deep</p></t-define>
+<!-- context -->
+<!-- out -->
+<html><body><p>Deep</p></body></html>
+
+<!-- test: extend with variables -->
+<!-- in:base.html -->
+<html><head><title><t-var name="page.title" /></title></head><body><t-slot /></body></html>
+<!-- in -->
+<t-extend template="base.html">
+<t-define name="">
+<p>Hello</p>
+</t-define>
+<!-- context -->
+{"vars": {"page.title": "Test Page"}}
+<!-- out -->
+<html><head><title>Test Page</title></head><body><p>Hello</p></body></html>
+
+<!-- test: extend missing template is error -->
+<!-- in -->
+<t-extend template="nonexistent.html">
+<t-define name="">content</t-define>
+<!-- error: TemplateNotFound -->
+
+<!-- test: extend circular reference is error -->
+<!-- in:a.html -->
+<t-extend template="b.html">
+<t-define name="">A</t-define>
+<!-- in:b.html -->
+<t-extend template="a.html">
+<t-define name="">B</t-define>
+<!-- in -->
+<t-extend template="a.html">
+<t-define name="">start</t-define>
+<!-- error: CircularReference -->
+
+<!-- test: extend with named slots -->
+<!-- in:layout.html -->
+<head><t-slot name="head" /></head><body><t-slot /></body>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="head"><title>My Page</title></t-define>
+<t-define name="">
+<p>Body</p>
+</t-define>
+<!-- context -->
+<!-- out -->
+<head><title>My Page</title></head><body><p>Body</p></body>

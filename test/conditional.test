@@ -1,0 +1,160 @@
+<!-- test: if var exists - true -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"vars": {"x": "hello"}}
+<!-- out -->
+yes
+
+<!-- test: if var exists - false -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- out -->
+
+<!-- test: if var exists with empty string - strict true -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"vars": {"x": ""}}
+<!-- out -->
+yes
+
+<!-- test: if var equals - true -->
+<!-- in -->
+<t-if var="x" equals="hello">match</t-if>
+<!-- context -->
+{"vars": {"x": "hello"}}
+<!-- out -->
+match
+
+<!-- test: if var equals - false -->
+<!-- in -->
+<t-if var="x" equals="hello">match</t-if>
+<!-- context -->
+{"vars": {"x": "world"}}
+<!-- out -->
+
+<!-- test: if var not-equals - true -->
+<!-- in -->
+<t-if var="x" not-equals="hello">different</t-if>
+<!-- context -->
+{"vars": {"x": "world"}}
+<!-- out -->
+different
+
+<!-- test: if var not-equals - false -->
+<!-- in -->
+<t-if var="x" not-equals="hello">different</t-if>
+<!-- context -->
+{"vars": {"x": "hello"}}
+<!-- out -->
+
+<!-- test: if var not-equals missing is true -->
+<!-- in -->
+<t-if var="x" not-equals="hello">different</t-if>
+<!-- out -->
+different
+
+<!-- test: if var not-exists - true when missing -->
+<!-- in -->
+<t-if var="x" not-exists>missing</t-if>
+<!-- out -->
+missing
+
+<!-- test: if var not-exists - false when present -->
+<!-- in -->
+<t-if var="x" not-exists>missing</t-if>
+<!-- context -->
+{"vars": {"x": "hello"}}
+<!-- out -->
+
+<!-- test: if var not-exists with empty string - strict false -->
+<!-- in -->
+<t-if var="x" not-exists>missing</t-if>
+<!-- context -->
+{"vars": {"x": ""}}
+<!-- out -->
+
+<!-- test: if-else -->
+<!-- in -->
+<t-if var="x">yes<t-else />no</t-if>
+<!-- out -->
+no
+
+<!-- test: if-else with true condition -->
+<!-- in -->
+<t-if var="x">yes<t-else />no</t-if>
+<!-- context -->
+{"vars": {"x": "1"}}
+<!-- out -->
+yes
+
+<!-- test: if-elif-else -->
+<!-- in -->
+<t-if var="a">A<t-elif var="b" />B<t-else />C</t-if>
+<!-- context -->
+{"vars": {"b": "yes"}}
+<!-- out -->
+B
+
+<!-- test: if-elif-else fallthrough -->
+<!-- in -->
+<t-if var="a">A<t-elif var="b" />B<t-else />C</t-if>
+<!-- out -->
+C
+
+<!-- test: if attr exists -->
+<!-- in:comp.html -->
+<t-if attr="variant">styled<t-else />plain</t-if>
+<!-- in -->
+<t-include template="comp.html" variant="primary" />
+<!-- context -->
+<!-- out -->
+styled
+
+<!-- test: if attr missing -->
+<!-- in:comp.html -->
+<t-if attr="variant">styled<t-else />plain</t-if>
+<!-- in -->
+<t-include template="comp.html" />
+<!-- context -->
+<!-- out -->
+plain
+
+<!-- test: if slot exists -->
+<!-- in:layout.html -->
+<t-if slot="sidebar">has-sidebar</t-if>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="sidebar">content</t-define>
+<!-- context -->
+<!-- out -->
+has-sidebar
+
+<!-- test: if slot not-exists -->
+<!-- in:layout.html -->
+<t-if slot="sidebar" not-exists>no-sidebar</t-if>
+<!-- in -->
+<t-extend template="layout.html">
+<t-define name="">main</t-define>
+<!-- context -->
+<!-- out -->
+no-sidebar
+
+<!-- test: nested if -->
+<!-- in -->
+<t-if var="a"><t-if var="b">both</t-if></t-if>
+<!-- context -->
+{"vars": {"a": "1", "b": "2"}}
+<!-- out -->
+both
+
+<!-- test: orphan else is error -->
+<!-- in -->
+<t-else />
+<!-- error: MalformedElement -->
+
+<!-- test: orphan elif is error -->
+<!-- in -->
+<t-elif var="x" />
+<!-- error: MalformedElement -->

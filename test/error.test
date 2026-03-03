@@ -1,0 +1,50 @@
+<!-- test: unclosed t-var tag -->
+<!-- in -->
+<t-var name="x"
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-if tag -->
+<!-- in -->
+<t-if var="x"
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-if element (no closing tag) -->
+<!-- in -->
+<t-if var="x">hello
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-for tag -->
+<!-- in -->
+<t-for item in items
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-for element -->
+<!-- in -->
+<t-for item in items>hello
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-let element -->
+<!-- in -->
+<t-let name="x">no close
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed t-comment block -->
+<!-- in -->
+<t-comment>no close
+<!-- error: MalformedElement -->
+
+<!-- test: undefined variable -->
+<!-- in -->
+<t-var name="nonexistent" />
+<!-- error: UndefinedVariable -->
+
+<!-- test: template not found in extend -->
+<!-- in -->
+<t-extend template="missing.html">
+<t-define name="">x</t-define>
+<!-- error: TemplateNotFound -->
+
+<!-- test: template not found in include -->
+<!-- in -->
+<t-include template="missing.html" />
+<!-- error: TemplateNotFound -->

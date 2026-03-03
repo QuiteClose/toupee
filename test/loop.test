@@ -1,0 +1,85 @@
+<!-- test: basic for loop -->
+<!-- in -->
+<t-for post in pages.posts><p><t-var name="post.title" /></p></t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "First"}, {"title": "Second"}]}}
+<!-- out -->
+<p>First</p><p>Second</p>
+
+<!-- test: for with sort ascending -->
+<!-- in -->
+<t-for post in pages.posts sort="title"><t-var name="post.title" />,</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "Banana"}, {"title": "Apple"}, {"title": "Cherry"}]}}
+<!-- out -->
+Apple,Banana,Cherry,
+
+<!-- test: for with sort descending -->
+<!-- in -->
+<t-for post in pages.posts sort="date" order="desc"><t-var name="post.title" />,</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "First", "date": "2024-01-01"}, {"title": "Second", "date": "2024-02-01"}]}}
+<!-- out -->
+Second,First,
+
+<!-- test: for with limit -->
+<!-- in -->
+<t-for post in pages.posts limit="2"><t-var name="post.title" />,</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}
+<!-- out -->
+A,B,
+
+<!-- test: for with offset -->
+<!-- in -->
+<t-for post in pages.posts offset="1"><t-var name="post.title" />,</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}
+<!-- out -->
+B,C,
+
+<!-- test: for with limit and offset -->
+<!-- in -->
+<t-for post in pages.posts offset="1" limit="1"><t-var name="post.title" />,</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}}
+<!-- out -->
+B,
+
+<!-- test: for with loop alias -->
+<!-- in -->
+<t-for post in pages.posts as loop><t-var name="loop.number" />:<t-var name="post.title" />,</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "First"}, {"title": "Second"}]}}
+<!-- out -->
+1:First,2:Second,
+
+<!-- test: for with loop index -->
+<!-- in -->
+<t-for post in pages.posts as loop>[<t-var name="loop.index" />]</t-for>
+<!-- context -->
+{"collections": {"pages.posts": [{"title": "A"}, {"title": "B"}]}}
+<!-- out -->
+[0][1]
+
+<!-- test: for with missing collection renders nothing -->
+<!-- in -->
+[<t-for post in missing.collection><t-var name="post.title" /></t-for>]
+<!-- out -->
+[]
+
+<!-- test: for empty collection renders nothing -->
+<!-- in -->
+[<t-for post in pages.posts><t-var name="post.title" /></t-for>]
+<!-- context -->
+{"collections": {"pages.posts": []}}
+<!-- out -->
+[]
+
+<!-- test: for preserves parent vars -->
+<!-- in -->
+<t-for post in pages.posts><t-var name="site.title" />:<t-var name="post.title" />,</t-for>
+<!-- context -->
+{"vars": {"site.title": "MySite"}, "collections": {"pages.posts": [{"title": "Post"}]}}
+<!-- out -->
+MySite:Post,

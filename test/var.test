@@ -1,0 +1,112 @@
+<!-- test: basic variable substitution -->
+<!-- in -->
+<p><t-var name="title" /></p>
+<!-- context -->
+{"vars": {"title": "Home"}}
+<!-- out -->
+<p>Home</p>
+
+<!-- test: missing variable is error -->
+<!-- in -->
+<p><t-var name="title" /></p>
+<!-- error: UndefinedVariable -->
+
+<!-- test: html escaping -->
+<!-- in -->
+<p><t-var name="title" /></p>
+<!-- context -->
+{"vars": {"title": "Tom & Jerry"}}
+<!-- out -->
+<p>Tom &amp; Jerry</p>
+
+<!-- test: all html entities escaped -->
+<!-- in -->
+<p><t-var name="v" /></p>
+<!-- context -->
+{"vars": {"v": "<b>\"bold\"</b>"}}
+<!-- out -->
+<p>&lt;b&gt;&quot;bold&quot;&lt;/b&gt;</p>
+
+<!-- test: dotted path variable -->
+<!-- in -->
+<p><t-var name="site.title" /></p>
+<!-- context -->
+{"vars": {"site.title": "QuiteClose"}}
+<!-- out -->
+<p>QuiteClose</p>
+
+<!-- test: deeply dotted path -->
+<!-- in -->
+<p><t-var name="data.site.title" /></p>
+<!-- context -->
+{"vars": {"data.site.title": "QuiteClose"}}
+<!-- out -->
+<p>QuiteClose</p>
+
+<!-- test: default body used when missing -->
+<!-- in -->
+<p><t-var name="title">Fallback</t-var></p>
+<!-- out -->
+<p>Fallback</p>
+
+<!-- test: default body not used when exists -->
+<!-- in -->
+<p><t-var name="title">Fallback</t-var></p>
+<!-- context -->
+{"vars": {"title": "Real Title"}}
+<!-- out -->
+<p>Real Title</p>
+
+<!-- test: default body with nested var -->
+<!-- in -->
+<p><t-var name="missing"><t-var name="fallback" /></t-var></p>
+<!-- context -->
+{"vars": {"fallback": "OK"}}
+<!-- out -->
+<p>OK</p>
+
+<!-- test: empty default no error -->
+<!-- in -->
+<p><t-var name="missing"></t-var></p>
+<!-- out -->
+<p></p>
+
+<!-- test: existing value is escaped but default body is not -->
+<!-- in -->
+<t-var name="x">default</t-var>
+<!-- context -->
+{"vars": {"x": "<b>hi</b>"}}
+<!-- out -->
+&lt;b&gt;hi&lt;/b&gt;
+
+<!-- test: multiple vars in one template -->
+<!-- in -->
+<h1><t-var name="title" /></h1><p><t-var name="body" /></p>
+<!-- context -->
+{"vars": {"title": "Hello", "body": "World"}}
+<!-- out -->
+<h1>Hello</h1><p>World</p>
+
+<!-- test: var with empty string value -->
+<!-- in -->
+<p><t-var name="x" /></p>
+<!-- context -->
+{"vars": {"x": ""}}
+<!-- out -->
+<p></p>
+
+<!-- test: plain text passthrough -->
+<!-- in -->
+<p>No template elements here</p>
+<!-- out -->
+<p>No template elements here</p>
+
+<!-- test: missing name attribute is error -->
+<!-- in -->
+<p><t-var /></p>
+<!-- error: MalformedElement -->
+
+<!-- test: unclosed block var is error -->
+<!-- in -->
+<p><t-var name="x">no close tag</p>
+<!-- error: MalformedElement -->
