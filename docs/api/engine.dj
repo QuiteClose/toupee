@@ -102,5 +102,21 @@ const opts: toupee.Options = .{
 | `template_name` | `[]const u8` | `""` | Name shown in error messages |
 | `template_source` | `[]const u8` | `""` | Source for error excerpts |
 | `registry` | `?*const Registry` | `null` | Transform registry |
+| `strict` | `bool` | `true` | Error on undefined variables without defaults |
+| `debug` | `bool` | `false` | Enable `<t-debug />` context dumps |
 
-When using the `Engine`, these are set automatically.
+When using the `Engine`, `template_name`, `template_source`, and `registry` are set automatically.
+
+### Strict mode
+
+With `strict = true` (the default), referencing a variable that doesn't exist and has no default body or `default` transform causes `UndefinedVariable`. With `strict = false`, missing variables silently output an empty string.
+
+```zig
+const result = try engine.render(allocator, template, &ctx, &resolver, .{
+    .strict = false,
+});
+```
+
+### Debug mode
+
+With `debug = true`, `<t-debug />` elements render an HTML table showing all variables in the current context. With `debug = false` (the default), `<t-debug />` produces no output.

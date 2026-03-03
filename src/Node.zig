@@ -6,6 +6,7 @@ pub const Node = union(enum) {
     raw_variable: Variable,
     let_binding: LetBinding,
     comment,
+    debug,
     slot: Slot,
     include: Include,
     extend: Extend,
@@ -79,6 +80,10 @@ pub const Condition = struct {
         not_exists,
         equals: []const u8,
         not_equals: []const u8,
+        contains: []const u8,
+        starts_with: []const u8,
+        ends_with: []const u8,
+        matches: []const u8,
     };
 };
 
@@ -91,6 +96,7 @@ pub const Loop = struct {
     limit: ?usize = null,
     offset: ?usize = null,
     body: []const Node,
+    else_body: []const Node = &.{},
     source_pos: usize = 0,
 };
 
@@ -183,6 +189,11 @@ test "comment node" {
     try std.testing.expect(node == .comment);
 }
 
+test "debug node" {
+    const node: Node = .debug;
+    try std.testing.expect(node == .debug);
+}
+
 test "attr_output node" {
     const node: Node = .{ .attr_output = .{ .name = "href" } };
     try std.testing.expectEqualStrings("href", node.attr_output.name);
@@ -255,6 +266,32 @@ test "conditional with equals comparison" {
     }
 }
 
+test "conditional with contains comparison" {
+    const body = [_]Node{.{ .text = "found" }};
+    const branches = [_]Branch{.{
+        .condition = .{ .source = .variable, .name = "text", .comparison = .{ .contains = "world" } },
+        .body = &body,
+    }};
+    const node: Node = .{ .conditional = .{ .branches = &branches } };
+    switch (node.conditional.branches[0].condition.comparison) {
+        .contains => |v| try std.testing.expectEqualStrings("world", v),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "loop node with else body" {
+    const body = [_]Node{.{ .text = "item" }};
+    const else_body = [_]Node{.{ .text = "empty" }};
+    const node: Node = .{ .loop = .{
+        .item_prefix = "item",
+        .collection = "items",
+        .body = &body,
+        .else_body = &else_body,
+    } };
+    try std.testing.expectEqual(@as(usize, 1), node.loop.else_body.len);
+    try std.testing.expectEqualStrings("empty", node.loop.else_body[0].text);
+}
+
 test "loop node with all optional fields" {
     const body = [_]Node{.{ .text = "item" }};
     const node: Node = .{ .loop = .{
@@ -310,6 +347,7 @@ test "union matching covers all variants" {
         .{ .raw_variable = .{ .name = "r" } },
         .{ .let_binding = .{ .name = "l", .body = &.{} } },
         .comment,
+        .debug,
         .{ .attr_output = .{ .name = "a" } },
         .{ .slot = .{ .name = "s" } },
         .{ .include = .{ .template = "i" } },
@@ -320,8 +358,8 @@ test "union matching covers all variants" {
     };
     for (nodes) |node| {
         switch (node) {
-            .text, .variable, .raw_variable, .let_binding, .comment, .attr_output, .slot, .include, .extend, .conditional, .loop, .bound_tag => {},
+            .text, .variable, .raw_variable, .let_binding, .comment, .debug, .attr_output, .slot, .include, .extend, .conditional, .loop, .bound_tag => {},
         }
     }
-    try std.testing.expectEqual(@as(usize, 12), nodes.len);
+    try std.testing.expectEqual(@as(usize, 13), nodes.len);
 }

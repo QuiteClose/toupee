@@ -17,6 +17,8 @@ pub const Options = struct {
     template_name: []const u8 = "<input>",
     template_source: []const u8 = "",
     registry: ?*const transform.Registry = null,
+    strict: bool = true,
+    debug: bool = false,
 };
 
 const State = struct {
@@ -26,6 +28,8 @@ const State = struct {
     template_name: []const u8,
     template_source: []const u8,
     registry: ?*const transform.Registry,
+    strict: bool,
+    debug: bool,
     include_stack_buf: [16]Ctx.IncludeEntry,
     include_stack_len: u8,
 
@@ -69,6 +73,8 @@ pub fn render(
         .template_name = options.template_name,
         .template_source = options.template_source,
         .registry = options.registry,
+        .strict = options.strict,
+        .debug = options.debug,
         .include_stack_buf = [_]Ctx.IncludeEntry{.{}} ** 16,
         .include_stack_len = 0,
     };
@@ -90,6 +96,7 @@ fn renderNodes(state: State, nodes: []const Node, ctx: *Context, depth: usize) R
             .raw_variable => |v| try renderVariable(state, v, ctx, depth, &out, false),
             .let_binding => |lb| try renderLet(state, lb, ctx, depth),
             .comment => {},
+            .debug => if (state.debug) try renderDebug(state, ctx, &out),
             .attr_output => |ao| try renderAttrOutput(state, ao, ctx, &out),
             .slot => |s| try renderSlot(state, s, ctx, depth, &out),
             .include => |inc| try renderInclude(state, inc, ctx, depth, &out),
@@ -121,7 +128,7 @@ fn renderVariable(
         if (v.default_body.len > 0) value = try renderNodes(state, v.default_body, ctx, depth);
     } else if (v.transform.len > 0 and hasDefaultTransform(v.transform)) {
         // default transform will provide the value
-    } else {
+    } else if (state.strict) {
         setRichError(state, ctx, v.source_pos, .undefined_variable, v.name);
         return error.UndefinedVariable;
     }
@@ -269,34 +276,55 @@ fn evaluateCondition(cond: N.Condition, ctx: *const Context) bool {
         return evalComparison(cond.comparison, ctx.getAttr(cond.name));
     }
     const resolved = ctx.resolve(cond.name);
+    const val_str = if (resolved) |rv| rv.asString() orelse "" else "";
     return switch (cond.comparison) {
         .exists => resolved != null,
         .not_exists => resolved == null,
-        .equals => |expected| if (resolved) |rv| std.mem.eql(u8, rv.asString() orelse "", expected) else false,
-        .not_equals => |expected| if (resolved) |rv| !std.mem.eql(u8, rv.asString() orelse "", expected) else true,
+        .equals => |expected| if (resolved != null) std.mem.eql(u8, val_str, expected) else false,
+        .not_equals => |expected| if (resolved != null) !std.mem.eql(u8, val_str, expected) else true,
+        .contains => |needle| if (resolved != null) std.mem.indexOf(u8, val_str, needle) != null else false,
+        .starts_with => |pfx| if (resolved != null) std.mem.startsWith(u8, val_str, pfx) else false,
+        .ends_with => |sfx| if (resolved != null) std.mem.endsWith(u8, val_str, sfx) else false,
+        .matches => |pattern| if (resolved != null) globMatch(val_str, pattern) else false,
     };
 }
 
 fn evalComparison(comparison: N.Condition.Comparison, value: ?[]const u8) bool {
+    const v = value orelse "";
     return switch (comparison) {
         .exists => value != null,
         .not_exists => value == null,
-        .equals => |expected| if (value) |v| std.mem.eql(u8, v, expected) else false,
-        .not_equals => |expected| if (value) |v| !std.mem.eql(u8, v, expected) else true,
+        .equals => |expected| if (value != null) std.mem.eql(u8, v, expected) else false,
+        .not_equals => |expected| if (value != null) !std.mem.eql(u8, v, expected) else true,
+        .contains => |needle| if (value != null) std.mem.indexOf(u8, v, needle) != null else false,
+        .starts_with => |pfx| if (value != null) std.mem.startsWith(u8, v, pfx) else false,
+        .ends_with => |sfx| if (value != null) std.mem.endsWith(u8, v, sfx) else false,
+        .matches => |pattern| if (value != null) globMatch(v, pattern) else false,
     };
 }
 
 fn renderLoop(state: State, loop: N.Loop, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
-    const resolved = ctx.resolve(loop.collection) orelse return;
-    const list = resolved.asList() orelse return;
+    const resolved = ctx.resolve(loop.collection) orelse {
+        if (loop.else_body.len > 0) try out.appendSlice(state.a, try renderNodes(state, loop.else_body, ctx, depth));
+        return;
+    };
+    const list = resolved.asList() orelse {
+        if (loop.else_body.len > 0) try out.appendSlice(state.a, try renderNodes(state, loop.else_body, ctx, depth));
+        return;
+    };
     const items = try state.a.dupe(V.Value, list);
     if (loop.sort_field) |field| sortItems(items, field, loop.order_desc);
     const final = applyLimitOffset(items, loop.limit, loop.offset);
 
+    if (final.len == 0) {
+        if (loop.else_body.len > 0) try out.appendSlice(state.a, try renderNodes(state, loop.else_body, ctx, depth));
+        return;
+    }
+
     for (final, 0..) |item, idx| {
         var child_data = try copyMap(state.a, ctx.data);
         try child_data.put(state.a, loop.item_prefix, item);
-        if (loop.alias) |alias| try putAliasMetadata(state.a, &child_data, alias, idx);
+        if (loop.alias) |alias| try putAliasMetadata(state.a, &child_data, alias, idx, final.len);
 
         var child_ctx: Context = .{
             .data = child_data,
@@ -337,10 +365,13 @@ fn copyMap(a: Allocator, source: V.Map) RenderError!V.Map {
     return result;
 }
 
-fn putAliasMetadata(a: Allocator, data: *V.Map, alias: []const u8, idx: usize) RenderError!void {
+fn putAliasMetadata(a: Allocator, data: *V.Map, alias: []const u8, idx: usize, total: usize) RenderError!void {
     var alias_map: V.Map = .{};
     try alias_map.put(a, "index", .{ .string = try std.fmt.allocPrint(a, "{d}", .{idx}) });
     try alias_map.put(a, "number", .{ .string = try std.fmt.allocPrint(a, "{d}", .{idx + 1}) });
+    try alias_map.put(a, "length", .{ .string = try std.fmt.allocPrint(a, "{d}", .{total}) });
+    if (idx == 0) try alias_map.put(a, "first", .{ .string = "true" });
+    if (idx == total - 1) try alias_map.put(a, "last", .{ .string = "true" });
     try data.put(a, alias, .{ .map = alias_map });
 }
 
@@ -384,6 +415,84 @@ fn applyOne(state: State, value: []const u8, name: []const u8, args: []const []c
         if (reg.get(name)) |func| return func(state.a, value, args);
     }
     return error.MalformedElement;
+}
+
+// ---- Glob matching ----
+
+fn globMatch(text: []const u8, pattern: []const u8) bool {
+    var ti: usize = 0;
+    var pi: usize = 0;
+    var star_pi: ?usize = null;
+    var star_ti: usize = 0;
+
+    while (ti < text.len) {
+        if (pi < pattern.len and (pattern[pi] == '?' or pattern[pi] == text[ti])) {
+            ti += 1;
+            pi += 1;
+        } else if (pi < pattern.len and pattern[pi] == '*') {
+            star_pi = pi;
+            star_ti = ti;
+            pi += 1;
+        } else if (star_pi) |sp| {
+            pi = sp + 1;
+            star_ti += 1;
+            ti = star_ti;
+        } else {
+            return false;
+        }
+    }
+
+    while (pi < pattern.len and pattern[pi] == '*') : (pi += 1) {}
+    return pi == pattern.len;
+}
+
+// ---- Debug rendering ----
+
+fn renderDebug(state: State, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
+    try out.appendSlice(state.a, "<div class=\"t-debug\"><h3>Template Context</h3>");
+    try out.appendSlice(state.a, "<table><thead><tr><th>Variable</th><th>Value</th></tr></thead><tbody>");
+    var it = ctx.data.iterator();
+    while (it.next()) |entry| {
+        try out.appendSlice(state.a, "<tr><td><code>");
+        try h.appendEscaped(state.a, out, entry.key_ptr.*);
+        try out.appendSlice(state.a, "</code></td><td><code>");
+        try appendValueDebug(state.a, out, entry.value_ptr.*);
+        try out.appendSlice(state.a, "</code></td></tr>");
+    }
+    try out.appendSlice(state.a, "</tbody></table></div>");
+}
+
+fn appendValueDebug(a: Allocator, out: *std.ArrayList(u8), value: V.Value) RenderError!void {
+    switch (value) {
+        .nil => try out.appendSlice(a, "nil"),
+        .string => |s| try h.appendEscaped(a, out, s),
+        .boolean => |b| try out.appendSlice(a, if (b) "true" else "false"),
+        .integer => |i| {
+            const s = try std.fmt.allocPrint(a, "{d}", .{i});
+            try out.appendSlice(a, s);
+        },
+        .list => |items| {
+            try out.appendSlice(a, "[");
+            for (items, 0..) |item, idx| {
+                if (idx > 0) try out.appendSlice(a, ", ");
+                try appendValueDebug(a, out, item);
+            }
+            try out.appendSlice(a, "]");
+        },
+        .map => |m| {
+            try out.appendSlice(a, "{");
+            var mit = m.iterator();
+            var first = true;
+            while (mit.next()) |entry| {
+                if (!first) try out.appendSlice(a, ", ");
+                first = false;
+                try h.appendEscaped(a, out, entry.key_ptr.*);
+                try out.appendSlice(a, ": ");
+                try appendValueDebug(a, out, entry.value_ptr.*);
+            }
+            try out.appendSlice(a, "}");
+        },
+    }
 }
 
 // ---- Error helpers ----
@@ -669,6 +778,80 @@ test "levenshtein empty" {
 
 test "levenshtein both empty" {
     try testing.expectEqual(@as(usize, 0), levenshtein("", ""));
+}
+
+test "strict false allows missing variables" {
+    const nodes = [_]Node{
+        .{ .text = "[" },
+        .{ .variable = .{ .name = "missing" } },
+        .{ .text = "]" },
+    };
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{ .strict = false });
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("[]", result);
+}
+
+test "strict true errors on missing variables" {
+    const nodes = [_]Node{.{ .variable = .{ .name = "missing" } }};
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const result = render(testing.allocator, &nodes, &ctx, &resolver, .{ .strict = true });
+    try testing.expectError(error.UndefinedVariable, result);
+}
+
+test "debug element renders context dump" {
+    const nodes = [_]Node{.debug};
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{ .debug = true });
+    defer testing.allocator.free(result);
+    try testing.expect(std.mem.indexOf(u8, result, "t-debug") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "title") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "Hello") != null);
+}
+
+test "debug element stripped when debug is false" {
+    const nodes = [_]Node{ .{ .text = "a" }, .debug, .{ .text = "b" } };
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{ .debug = false });
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("ab", result);
+}
+
+test "glob match basic patterns" {
+    try testing.expect(globMatch("hello", "hello"));
+    try testing.expect(globMatch("hello", "*"));
+    try testing.expect(globMatch("hello", "h*o"));
+    try testing.expect(globMatch("hello", "h?llo"));
+    try testing.expect(!globMatch("hello", "world"));
+    try testing.expect(!globMatch("hello", "h?lo"));
+    try testing.expect(globMatch("/blog/post-1", "/blog/*"));
+    try testing.expect(!globMatch("/about", "/blog/*"));
+    try testing.expect(globMatch("v2.0", "v?.0"));
+    try testing.expect(!globMatch("v12.0", "v?.0"));
+}
+
+test "for-else renders else body on empty list" {
+    const body = [_]Node{.{ .text = "item" }};
+    const else_body = [_]Node{.{ .text = "empty" }};
+    const nodes = [_]Node{.{ .loop = .{
+        .item_prefix = "item",
+        .collection = "items",
+        .body = &body,
+        .else_body = &else_body,
+    } }};
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "items", .{ .list = &.{} });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+    const result = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("empty", result);
 }
 
 test "rich error populates ErrorDetail" {

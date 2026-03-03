@@ -61,7 +61,7 @@ Toupee provides these template elements:
 | `<t-var>` | Output a variable (HTML-escaped) |
 | `<t-raw>` | Output a variable (unescaped) |
 | `<t-if>` | Conditional rendering |
-| `<t-for>` | Loop over collections |
+| `<t-for>` | Loop over collections (with for-else support) |
 | `<t-let>` | Capture rendered content into a variable |
 | `<t-extend>` | Inherit from a parent template |
 | `<t-slot>` | Define insertion points in parent templates |
@@ -69,5 +69,6 @@ Toupee provides these template elements:
 | `<t-include>` | Include a component template |
 | `<t-attr>` | Output an include attribute |
 | `<t-comment>` | Template-only comment (stripped from output) |
+| `<t-debug>` | Context dump (debug mode only) |
 
 All template elements use self-closing (`<t-var name="x" />`) or block (`<t-if var="x">...</t-if>`) syntax.

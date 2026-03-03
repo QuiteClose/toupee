@@ -40,6 +40,17 @@ A missing variable satisfies `not-equals` (it doesn't equal anything).
 </t-if>
 ```
 
+### Substring and pattern checks
+
+```html
+<t-if var="text" contains="world">found</t-if>
+<t-if var="path" starts-with="/blog">blog section</t-if>
+<t-if var="file" ends-with=".html">HTML file</t-if>
+<t-if var="path" matches="/blog/*">blog post</t-if>
+```
+
+`matches` supports simple glob patterns: `*` matches any sequence of characters, `?` matches exactly one character.
+
 ### `<t-else>` and `<t-elif>`
 
 ```html
@@ -97,6 +108,19 @@ Available metadata:
 |----------|-------------|
 | `loop.index` | Zero-based index (0, 1, 2, ...) |
 | `loop.number` | One-based number (1, 2, 3, ...) |
+| `loop.length` | Total number of items |
+| `loop.first` | Present only on first iteration |
+| `loop.last` | Present only on last iteration |
+
+`loop.first` and `loop.last` use existence semantics -- they are only present on the first/last iteration respectively. Use `<t-if var="loop.first">` to check:
+
+```html
+<t-for item in items as loop>
+<t-if var="loop.first"><h2>Items:</h2></t-if>
+<p><t-var name="item.name" /></p>
+<t-if var="loop.last"><hr /></t-if>
+</t-for>
+```
 
 ### Sorting
 
@@ -117,6 +141,20 @@ Available metadata:
 ```
 
 `limit` restricts the number of iterations. `offset` skips the first N items. Both work after sorting.
+
+### For-else (empty collection fallback)
+
+Render fallback content when the collection is empty or missing:
+
+```html
+<t-for post in posts>
+<article><t-var name="post.title" /></article>
+<t-else />
+<p>No posts yet.</p>
+</t-for>
+```
+
+The `<t-else />` separator works the same way as in `<t-if>`. The else body is rendered when the collection is empty, missing, or not a list.
 
 ### All modifiers combined
 
@@ -148,10 +186,22 @@ Comments are stripped from output:
 
 Both block and self-closing forms work.
 
+## `<t-debug>` -- context dump
+
+During development, dump the current template context as HTML:
+
+```html
+<t-debug />
+```
+
+Renders a table showing all variables and their values. Only produces output when the engine's `debug` option is `true`; silently stripped in production builds.
+
 ## Edge cases
 
-- Missing loop collection renders nothing (no error)
-- Empty loop collection renders nothing
+- Missing loop collection renders the for-else body (or nothing if no else)
+- Empty loop collection renders the for-else body (or nothing if no else)
 - `<t-else />` and `<t-elif />` outside `<t-if>` cause `MalformedElement`
+- `<t-else />` inside a `<t-for>` within a `<t-if>` is correctly attributed to its parent element
 - Loop variables from inner loops don't leak to outer scopes
 - `<t-let>` variables set inside includes don't leak to the caller
+- `contains`, `starts-with`, `ends-with`, and `matches` return false when the variable is missing

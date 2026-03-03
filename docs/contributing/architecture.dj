@@ -79,6 +79,7 @@ The IR is an array of `Node.Node` values. `Node` is a tagged union with these va
 | `include` | `template, attrs, defines, body, source_pos` |
 | `let_binding` | `name, body, transforms, source_pos` |
 | `comment` | (no fields) |
+| `debug` | (no fields) |
 | `bound_tag` | `tag_name, bindings, inner_content, static_attrs, source_pos` |
 | `attr_output` | `name, source_pos` |
 

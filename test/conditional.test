@@ -236,3 +236,83 @@ only-a
 {"data": {"x": "yes"}}
 <!-- out -->
 before
+
+<!-- test: contains match -->
+<!-- in -->
+<t-if var="text" contains="world">found</t-if>
+<!-- context -->
+{"data": {"text": "hello world"}}
+<!-- out -->
+found
+
+<!-- test: contains no match -->
+<!-- in -->
+<t-if var="text" contains="xyz">found<t-else />not found</t-if>
+<!-- context -->
+{"data": {"text": "hello world"}}
+<!-- out -->
+not found
+
+<!-- test: starts-with match -->
+<!-- in -->
+<t-if var="path" starts-with="/blog">blog<t-else />other</t-if>
+<!-- context -->
+{"data": {"path": "/blog/my-post"}}
+<!-- out -->
+blog
+
+<!-- test: starts-with no match -->
+<!-- in -->
+<t-if var="path" starts-with="/blog">blog<t-else />other</t-if>
+<!-- context -->
+{"data": {"path": "/about"}}
+<!-- out -->
+other
+
+<!-- test: ends-with match -->
+<!-- in -->
+<t-if var="file" ends-with=".html">html<t-else />other</t-if>
+<!-- context -->
+{"data": {"file": "page.html"}}
+<!-- out -->
+html
+
+<!-- test: ends-with no match -->
+<!-- in -->
+<t-if var="file" ends-with=".html">html<t-else />other</t-if>
+<!-- context -->
+{"data": {"file": "style.css"}}
+<!-- out -->
+other
+
+<!-- test: matches glob with star -->
+<!-- in -->
+<t-if var="path" matches="/blog/*">blog post<t-else />other</t-if>
+<!-- context -->
+{"data": {"path": "/blog/my-post"}}
+<!-- out -->
+blog post
+
+<!-- test: matches glob no match -->
+<!-- in -->
+<t-if var="path" matches="/blog/*">blog<t-else />other</t-if>
+<!-- context -->
+{"data": {"path": "/about"}}
+<!-- out -->
+other
+
+<!-- test: matches glob with question mark -->
+<!-- in -->
+<t-if var="code" matches="v?.0">major<t-else />other</t-if>
+<!-- context -->
+{"data": {"code": "v2.0"}}
+<!-- out -->
+major
+
+<!-- test: contains with missing variable -->
+<!-- in -->
+<t-if var="text" contains="x">found<t-else />missing</t-if>
+<!-- context -->
+{"data": {}}
+<!-- out -->
+missing

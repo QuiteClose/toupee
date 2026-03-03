@@ -155,3 +155,67 @@ Apple,Banana,
 {"data": {"items": [{"x": "1"}, {"x": "2"}, {"x": "3"}]}}
 <!-- out -->
 first,other,other,
+
+<!-- test: loop.first only on first item -->
+<!-- in -->
+<t-for item in items as loop><t-if var="loop.first">[F]</t-if><t-var name="item" />,</t-for>
+<!-- context -->
+{"data": {"items": ["a", "b", "c"]}}
+<!-- out -->
+[F]a,b,c,
+
+<!-- test: loop.last only on last item -->
+<!-- in -->
+<t-for item in items as loop><t-var name="item" /><t-if var="loop.last">[L]</t-if>,</t-for>
+<!-- context -->
+{"data": {"items": ["a", "b", "c"]}}
+<!-- out -->
+a,b,c[L],
+
+<!-- test: loop.length available on every iteration -->
+<!-- in -->
+<t-for item in items as loop><t-var name="loop.length" />,</t-for>
+<!-- context -->
+{"data": {"items": ["x", "y", "z"]}}
+<!-- out -->
+3,3,3,
+
+<!-- test: loop.first and loop.last on single item -->
+<!-- in -->
+<t-for item in items as loop><t-if var="loop.first">F</t-if><t-if var="loop.last">L</t-if></t-for>
+<!-- context -->
+{"data": {"items": ["only"]}}
+<!-- out -->
+FL
+
+<!-- test: for-else with empty collection -->
+<!-- in -->
+<t-for item in items><t-var name="item" /><t-else />No items</t-for>
+<!-- context -->
+{"data": {"items": []}}
+<!-- out -->
+No items
+
+<!-- test: for-else with missing collection -->
+<!-- in -->
+<t-for item in missing><t-var name="item" /><t-else />Nothing here</t-for>
+<!-- context -->
+{"data": {}}
+<!-- out -->
+Nothing here
+
+<!-- test: for-else not shown when items exist -->
+<!-- in -->
+<t-for item in items><t-var name="item" />,<t-else />empty</t-for>
+<!-- context -->
+{"data": {"items": ["a", "b"]}}
+<!-- out -->
+a,b,
+
+<!-- test: for-else with nested conditional in else body -->
+<!-- in -->
+<t-for item in items><t-var name="item" /><t-else /><t-if var="fallback"><t-var name="fallback" /><t-else />default</t-if></t-for>
+<!-- context -->
+{"data": {"items": [], "fallback": "custom"}}
+<!-- out -->
+custom

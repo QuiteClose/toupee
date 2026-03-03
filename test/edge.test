@@ -189,3 +189,27 @@ AC
 <!-- context -->
 <!-- out -->
 default content
+
+<!-- test: debug element stripped when debug disabled -->
+<!-- in -->
+before<t-debug />after
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+beforeafter
+
+<!-- test: for-else inside conditional -->
+<!-- in -->
+<t-if var="show"><t-for item in items><t-var name="item" /><t-else />empty list</t-for></t-if>
+<!-- context -->
+{"data": {"show": "yes", "items": []}}
+<!-- out -->
+empty list
+
+<!-- test: loop first and last with limit -->
+<!-- in -->
+<t-for item in items as loop limit="2"><t-if var="loop.first">F</t-if><t-if var="loop.last">L</t-if><t-var name="item" />,</t-for>
+<!-- context -->
+{"data": {"items": ["a", "b", "c", "d"]}}
+<!-- out -->
+Fa,Lb,

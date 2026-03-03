@@ -119,6 +119,12 @@ fn dispatchElement(
             try nodes.append(a, .comment);
             break :blk pos;
         },
+        .t_debug => blk: {
+            const rest = input[start..];
+            const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+            try nodes.append(a, .debug);
+            break :blk start + tag_end + 1;
+        },
         .t_attr => parseAttrOutput(a, input, start, nodes, offset),
         .t_slot => parseSlot(a, input, start, nodes, offset),
         .t_include => parseInclude(a, input, start, nodes, offset),
@@ -139,7 +145,7 @@ fn findBoundTagEnd(input: []const u8, pos: usize) ?usize {
     return end_offset;
 }
 
-const Element = enum { t_var, t_raw, t_let, t_comment, t_attr, t_slot, t_include, t_for, t_if, t_else, t_elif };
+const Element = enum { t_var, t_raw, t_let, t_comment, t_debug, t_attr, t_slot, t_include, t_for, t_if, t_else, t_elif };
 
 fn matchElement(input: []const u8) ?Element {
     const tags = .{
@@ -152,6 +158,7 @@ fn matchElement(input: []const u8) ?Element {
         .{ "<" ++ prefix ++ "let ", Element.t_let },
         .{ "<" ++ prefix ++ "let>", Element.t_let },
         .{ "<" ++ prefix ++ "comment", Element.t_comment },
+        .{ "<" ++ prefix ++ "debug", Element.t_debug },
         .{ "<" ++ prefix ++ "attr ", Element.t_attr },
         .{ "<" ++ prefix ++ "attr/>", Element.t_attr },
         .{ "<" ++ prefix ++ "slot", Element.t_slot },
@@ -311,7 +318,9 @@ fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
     const for_close = comptime closeTag("for");
     const close_offset = h.findMatchingClose(input[body_start..], openTag("for"), for_close) orelse
         return error.MalformedElement;
-    const body = try parseContent(a, input[body_start .. body_start + close_offset], offset + body_start);
+    const full_body = input[body_start .. body_start + close_offset];
+    const body_offset = offset + body_start;
+    const split = splitForElse(full_body);
 
     try nodes.append(a, .{ .loop = .{
         .item_prefix = attrs.item_prefix,
@@ -321,10 +330,54 @@ fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
         .order_desc = attrs.order_desc,
         .limit = attrs.limit,
         .offset = attrs.offset,
-        .body = body,
+        .body = try parseContent(a, split.body, body_offset),
+        .else_body = if (split.else_body) |eb| try parseContent(a, eb, body_offset + split.else_offset) else &.{},
         .source_pos = offset + start,
     } });
     return body_start + close_offset + for_close.len;
+}
+
+const ForSplit = struct {
+    body: []const u8,
+    else_body: ?[]const u8,
+    else_offset: usize,
+};
+
+fn splitForElse(full_body: []const u8) ForSplit {
+    const open_for = openTag("for");
+    const close_for = comptime closeTag("for");
+    const open_if = openTag("if");
+    const close_if = comptime closeTag("if");
+    const else_tag = comptime "<" ++ prefix ++ "else";
+    var for_depth: usize = 0;
+    var if_depth: usize = 0;
+    var i: usize = 0;
+    while (i < full_body.len) {
+        if (std.mem.startsWith(u8, full_body[i..], open_for)) {
+            for_depth += 1;
+            i += open_for.len;
+        } else if (std.mem.startsWith(u8, full_body[i..], close_for)) {
+            if (for_depth == 0) break;
+            for_depth -= 1;
+            i += close_for.len;
+        } else if (std.mem.startsWith(u8, full_body[i..], open_if)) {
+            if_depth += 1;
+            i += open_if.len;
+        } else if (std.mem.startsWith(u8, full_body[i..], close_if)) {
+            if (if_depth > 0) if_depth -= 1;
+            i += close_if.len;
+        } else if (for_depth == 0 and if_depth == 0 and std.mem.startsWith(u8, full_body[i..], else_tag)) {
+            const tag_end = h.findTagEnd(full_body[i..]) orelse break;
+            return .{
+                .body = full_body[0..i],
+                .else_body = full_body[i + tag_end + 1 ..],
+                .else_offset = i + tag_end + 1,
+            };
+        } else {
+            i += 1;
+        }
+    }
+    return .{ .body = full_body, .else_body = null, .else_offset = 0 };
 }
 
 const ForAttrs = struct {
@@ -559,6 +612,10 @@ fn parseCondition(tag: []const u8) N.Condition {
 fn parseComparison(tag: []const u8) N.Condition.Comparison {
     if (h.extractAttrValue(tag, "equals")) |val| return .{ .equals = val };
     if (h.extractAttrValue(tag, "not-equals")) |val| return .{ .not_equals = val };
+    if (h.extractAttrValue(tag, "contains")) |val| return .{ .contains = val };
+    if (h.extractAttrValue(tag, "starts-with")) |val| return .{ .starts_with = val };
+    if (h.extractAttrValue(tag, "ends-with")) |val| return .{ .ends_with = val };
+    if (h.extractAttrValue(tag, "matches")) |val| return .{ .matches = val };
     if (h.hasBoolAttr(tag, "not-exists")) return .not_exists;
     return .exists;
 }
@@ -629,23 +686,32 @@ const Separator = struct { pos: usize, tag_len: usize, is_else: bool };
 fn findConditionalSeparator(body: []const u8, from: usize) ?Separator {
     const open_if = openTag("if");
     const close_if = comptime closeTag("if");
+    const open_for = openTag("for");
+    const close_for = comptime closeTag("for");
     const open_elif = openTag("elif");
     const open_else = comptime "<" ++ prefix ++ "else";
 
-    var depth: usize = 0;
+    var if_depth: usize = 0;
+    var for_depth: usize = 0;
     var i = from;
     while (i < body.len) {
         if (std.mem.startsWith(u8, body[i..], open_if)) {
-            depth += 1;
+            if_depth += 1;
             i += open_if.len;
         } else if (std.mem.startsWith(u8, body[i..], close_if)) {
-            if (depth == 0) return null;
-            depth -= 1;
+            if (if_depth == 0) return null;
+            if_depth -= 1;
             i += close_if.len;
-        } else if (depth == 0 and std.mem.startsWith(u8, body[i..], open_elif)) {
+        } else if (std.mem.startsWith(u8, body[i..], open_for)) {
+            for_depth += 1;
+            i += open_for.len;
+        } else if (std.mem.startsWith(u8, body[i..], close_for)) {
+            if (for_depth > 0) for_depth -= 1;
+            i += close_for.len;
+        } else if (if_depth == 0 and for_depth == 0 and std.mem.startsWith(u8, body[i..], open_elif)) {
             const tag_end = h.findTagEnd(body[i..]) orelse return null;
             return .{ .pos = i, .tag_len = tag_end + 1, .is_else = false };
-        } else if (depth == 0 and std.mem.startsWith(u8, body[i..], open_else)) {
+        } else if (if_depth == 0 and for_depth == 0 and std.mem.startsWith(u8, body[i..], open_else)) {
             const tag_end = h.findTagEnd(body[i..]) orelse return null;
             return .{ .pos = i, .tag_len = tag_end + 1, .is_else = true };
         } else {
@@ -882,6 +948,77 @@ test "parse bound tag" {
     try testing.expect(bt.segments[1].binding.is_var);
     try testing.expectEqualStrings(">", bt.segments[2].literal);
     try testing.expectEqualStrings("link</a>", result.nodes[1].text);
+}
+
+test "parse debug element" {
+    var result = try parse(testing.allocator, "a<t-debug />b");
+    defer result.deinit();
+    try testing.expectEqual(@as(usize, 3), result.nodes.len);
+    try testing.expectEqualStrings("a", result.nodes[0].text);
+    try testing.expect(result.nodes[1] == .debug);
+    try testing.expectEqualStrings("b", result.nodes[2].text);
+}
+
+test "parse for-else" {
+    var result = try parse(testing.allocator, "<t-for item in items>body<t-else />empty</t-for>");
+    defer result.deinit();
+    const loop = result.nodes[0].loop;
+    try testing.expectEqual(@as(usize, 1), loop.body.len);
+    try testing.expectEqualStrings("body", loop.body[0].text);
+    try testing.expectEqual(@as(usize, 1), loop.else_body.len);
+    try testing.expectEqualStrings("empty", loop.else_body[0].text);
+}
+
+test "parse for without else has empty else_body" {
+    var result = try parse(testing.allocator, "<t-for item in items>body</t-for>");
+    defer result.deinit();
+    try testing.expectEqual(@as(usize, 0), result.nodes[0].loop.else_body.len);
+}
+
+test "parse for-else ignores else inside nested if" {
+    var result = try parse(testing.allocator, "<t-for item in items><t-if var=\"x\">yes<t-else />no</t-if><t-else />empty</t-for>");
+    defer result.deinit();
+    const loop = result.nodes[0].loop;
+    try testing.expectEqual(@as(usize, 1), loop.body.len);
+    try testing.expect(loop.body[0] == .conditional);
+    try testing.expectEqual(@as(usize, 1), loop.else_body.len);
+    try testing.expectEqualStrings("empty", loop.else_body[0].text);
+}
+
+test "parse conditional with contains" {
+    var result = try parse(testing.allocator, "<t-if var=\"x\" contains=\"hello\">yes</t-if>");
+    defer result.deinit();
+    switch (result.nodes[0].conditional.branches[0].condition.comparison) {
+        .contains => |v| try testing.expectEqualStrings("hello", v),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "parse conditional with starts-with" {
+    var result = try parse(testing.allocator, "<t-if var=\"x\" starts-with=\"/blog\">yes</t-if>");
+    defer result.deinit();
+    switch (result.nodes[0].conditional.branches[0].condition.comparison) {
+        .starts_with => |v| try testing.expectEqualStrings("/blog", v),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "parse conditional with ends-with" {
+    var result = try parse(testing.allocator, "<t-if var=\"x\" ends-with=\".html\">yes</t-if>");
+    defer result.deinit();
+    switch (result.nodes[0].conditional.branches[0].condition.comparison) {
+        .ends_with => |v| try testing.expectEqualStrings(".html", v),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "parse conditional with matches" {
+    var result = try parse(testing.allocator, "<t-if var=\"x\" matches=\"*.html\">yes</t-if>");
+    defer result.deinit();
+    switch (result.nodes[0].conditional.branches[0].condition.comparison) {
+        .matches => |v| try testing.expectEqualStrings("*.html", v),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "parse stray else is error" {
