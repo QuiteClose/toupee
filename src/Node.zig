@@ -20,21 +20,25 @@ pub const Variable = struct {
     transform: []const TransformStep = &.{},
     default_body: []const Node = &.{},
     has_body: bool = false,
+    source_pos: usize = 0,
 };
 
 pub const LetBinding = struct {
     name: []const u8,
     transform: []const TransformStep = &.{},
     body: []const Node,
+    source_pos: usize = 0,
 };
 
 pub const AttrOutput = struct {
     name: []const u8,
+    source_pos: usize = 0,
 };
 
 pub const Slot = struct {
     name: []const u8,
     default_body: []const Node = &.{},
+    source_pos: usize = 0,
 };
 
 pub const Include = struct {
@@ -43,16 +47,19 @@ pub const Include = struct {
     defines: []const Define = &.{},
     anonymous_body: []const Node = &.{},
     anonymous_body_source: []const u8 = "",
+    source_pos: usize = 0,
 };
 
 pub const Extend = struct {
     template: []const u8,
     defines: []const Define = &.{},
+    source_pos: usize = 0,
 };
 
 pub const Conditional = struct {
     branches: []const Branch,
     else_body: []const Node = &.{},
+    source_pos: usize = 0,
 };
 
 pub const Branch = struct {
@@ -84,10 +91,12 @@ pub const Loop = struct {
     limit: ?usize = null,
     offset: ?usize = null,
     body: []const Node,
+    source_pos: usize = 0,
 };
 
 pub const BoundTag = struct {
     segments: []const Segment,
+    source_pos: usize = 0,
 };
 
 pub const Segment = union(enum) {

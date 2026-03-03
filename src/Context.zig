@@ -4,12 +4,141 @@ const V = @import("Value.zig");
 
 pub const Value = V.Value;
 
+pub const IncludeEntry = struct {
+    template: []const u8 = "",
+    line: usize = 0,
+};
+
 pub const ErrorDetail = struct {
     line: usize = 0,
     column: usize = 0,
     source_file: []const u8 = "",
     message: []const u8 = "",
+    source_line: []const u8 = "",
+    caret_len: usize = 0,
+    kind: Kind = .none,
+    suggestion: []const u8 = "",
+    include_stack_len: u8 = 0,
+    include_stack_buf: [16]IncludeEntry = [_]IncludeEntry{.{}} ** 16,
+
+    pub const Kind = enum {
+        none,
+        undefined_variable,
+        template_not_found,
+        circular_reference,
+        malformed_element,
+        duplicate_slot,
+    };
+
+    pub fn includeStack(self: *const ErrorDetail) []const IncludeEntry {
+        return self.include_stack_buf[0..self.include_stack_len];
+    }
+
+    pub fn formatError(self: *const ErrorDetail, a: Allocator) Allocator.Error![]const u8 {
+        var buf: std.ArrayListUnmanaged(u8) = .{};
+        try writeHeader(a, &buf, self.kind, self.message, self.source_file);
+        if (self.source_file.len > 0 and self.line > 0)
+            try writeLocation(a, &buf, self.source_file, self.line, self.column);
+        if (self.source_line.len > 0)
+            try writeExcerpt(a, &buf, self.line, self.source_line, self.column, self.caret_len);
+        if (self.suggestion.len > 0) {
+            try buf.appendSlice(a, "   |\n   = did you mean '");
+            try buf.appendSlice(a, self.suggestion);
+            try buf.appendSlice(a, "'?\n");
+        }
+        for (self.includeStack()) |entry| try writeStackEntry(a, &buf, entry);
+        return buf.toOwnedSlice(a);
+    }
 };
+
+fn writeHeader(
+    a: Allocator,
+    buf: *std.ArrayListUnmanaged(u8),
+    kind: ErrorDetail.Kind,
+    message: []const u8,
+    source_file: []const u8,
+) Allocator.Error!void {
+    try buf.appendSlice(a, "error: ");
+    switch (kind) {
+        .undefined_variable => {
+            try buf.appendSlice(a, "undefined variable '");
+            try buf.appendSlice(a, message);
+            try buf.append(a, '\'');
+        },
+        .template_not_found => {
+            try buf.appendSlice(a, "template '");
+            try buf.appendSlice(a, message);
+            try buf.appendSlice(a, "' not found");
+        },
+        .circular_reference => {
+            try buf.appendSlice(a, "circular reference in template '");
+            try buf.appendSlice(a, message);
+            try buf.append(a, '\'');
+        },
+        .malformed_element => try buf.appendSlice(a, "malformed template element"),
+        .duplicate_slot => {
+            try buf.appendSlice(a, "duplicate slot definition '");
+            try buf.appendSlice(a, message);
+            try buf.append(a, '\'');
+        },
+        .none => try buf.appendSlice(a, message),
+    }
+    if (source_file.len > 0) {
+        try buf.appendSlice(a, " in '");
+        try buf.appendSlice(a, source_file);
+        try buf.append(a, '\'');
+    }
+    try buf.append(a, '\n');
+}
+
+fn writeLocation(a: Allocator, buf: *std.ArrayListUnmanaged(u8), file: []const u8, line: usize, col: usize) Allocator.Error!void {
+    try buf.appendSlice(a, "  --> ");
+    try buf.appendSlice(a, file);
+    try buf.append(a, ':');
+    try appendUsize(a, buf, line);
+    try buf.append(a, ':');
+    try appendUsize(a, buf, col);
+    try buf.append(a, '\n');
+}
+
+fn writeExcerpt(
+    a: Allocator,
+    buf: *std.ArrayListUnmanaged(u8),
+    line: usize,
+    source_line: []const u8,
+    col: usize,
+    caret_len: usize,
+) Allocator.Error!void {
+    try buf.appendSlice(a, "   |\n");
+    var num_buf: [20]u8 = undefined;
+    const line_str = std.fmt.bufPrint(&num_buf, "{d}", .{line}) catch "?";
+    var j: usize = 0;
+    while (j + line_str.len < 4) : (j += 1) try buf.append(a, ' ');
+    try buf.appendSlice(a, line_str);
+    try buf.appendSlice(a, " | ");
+    try buf.appendSlice(a, source_line);
+    try buf.appendSlice(a, "\n     | ");
+    j = 0;
+    while (j + 1 < col) : (j += 1) try buf.append(a, ' ');
+    const width = @max(caret_len, 1);
+    j = 0;
+    while (j < width) : (j += 1) try buf.append(a, '^');
+    try buf.append(a, '\n');
+}
+
+fn writeStackEntry(a: Allocator, buf: *std.ArrayListUnmanaged(u8), entry: IncludeEntry) Allocator.Error!void {
+    try buf.appendSlice(a, "   = included from '");
+    try buf.appendSlice(a, entry.template);
+    try buf.append(a, ':');
+    try appendUsize(a, buf, entry.line);
+    try buf.appendSlice(a, "'\n");
+}
+
+fn appendUsize(a: Allocator, buf: *std.ArrayListUnmanaged(u8), value: usize) Allocator.Error!void {
+    var num_buf: [20]u8 = undefined;
+    const s = std.fmt.bufPrint(&num_buf, "{d}", .{value}) catch "?";
+    try buf.appendSlice(a, s);
+}
 
 pub const Context = struct {
     data: V.Map = .{},

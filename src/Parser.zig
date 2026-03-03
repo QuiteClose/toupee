@@ -46,32 +46,33 @@ pub fn parse(child_allocator: Allocator, source: []const u8) ParseError!ParseRes
     if (std.mem.startsWith(u8, rest, extend_open) or
         std.mem.startsWith(u8, rest, extend_open_bare))
     {
-        const nodes = try parseExtend(a, rest);
+        const nodes = try parseExtend(a, rest, start);
         return .{ .nodes = nodes, .arena = arena };
     }
 
-    const nodes = try parseContent(a, source);
+    const nodes = try parseContent(a, source, 0);
     return .{ .nodes = nodes, .arena = arena };
 }
 
-fn parseExtend(a: Allocator, input: []const u8) ParseError![]const Node {
+fn parseExtend(a: Allocator, input: []const u8, offset: usize) ParseError![]const Node {
     const tag_end = h.findTagEnd(input) orelse return error.MalformedElement;
     const tag = input[0 .. tag_end + 1];
     const template_name = h.extractAttrValue(tag, "template") orelse
         return error.MalformedElement;
 
-    const result = try parseDefines(a, input[tag_end + 1 ..]);
+    const result = try parseDefines(a, input[tag_end + 1 ..], offset + tag_end + 1);
     var nodes: std.ArrayList(Node) = .{};
     try nodes.append(a, .{ .extend = .{
         .template = template_name,
         .defines = result.defines,
+        .source_pos = offset,
     } });
     return nodes.toOwnedSlice(a);
 }
 
 // ---- Content parsing ----
 
-fn parseContent(a: Allocator, input: []const u8) ParseError![]const Node {
+fn parseContent(a: Allocator, input: []const u8, offset: usize) ParseError![]const Node {
     var nodes: std.ArrayList(Node) = .{};
     var text_start: usize = 0;
     var i: usize = 0;
@@ -83,13 +84,13 @@ fn parseContent(a: Allocator, input: []const u8) ParseError![]const Node {
         }
         if (matchElement(input[i..])) |elem| {
             try flushText(a, &nodes, input, text_start, i);
-            i = try dispatchElement(a, input, i, &nodes, elem);
+            i = try dispatchElement(a, input, i, &nodes, elem, offset);
             text_start = i;
             continue;
         }
         if (findBoundTagEnd(input, i)) |end_offset| {
             try flushText(a, &nodes, input, text_start, i);
-            try parseBoundTag(a, input[i .. i + end_offset + 1], &nodes);
+            try parseBoundTag(a, input[i .. i + end_offset + 1], &nodes, offset + i);
             i += end_offset + 1;
             text_start = i;
             continue;
@@ -107,21 +108,22 @@ fn dispatchElement(
     start: usize,
     nodes: *std.ArrayList(Node),
     elem: Element,
+    offset: usize,
 ) ParseError!usize {
     return switch (elem) {
-        .t_var => parseVarOrRaw(a, input, start, nodes, true),
-        .t_raw => parseVarOrRaw(a, input, start, nodes, false),
-        .t_let => parseLet(a, input, start, nodes),
+        .t_var => parseVarOrRaw(a, input, start, nodes, true, offset),
+        .t_raw => parseVarOrRaw(a, input, start, nodes, false, offset),
+        .t_let => parseLet(a, input, start, nodes, offset),
         .t_comment => blk: {
             const pos = try parseComment(input, start);
             try nodes.append(a, .comment);
             break :blk pos;
         },
-        .t_attr => parseAttrOutput(a, input, start, nodes),
-        .t_slot => parseSlot(a, input, start, nodes),
-        .t_include => parseInclude(a, input, start, nodes),
-        .t_for => parseFor(a, input, start, nodes),
-        .t_if => parseConditional(a, input, start, nodes),
+        .t_attr => parseAttrOutput(a, input, start, nodes, offset),
+        .t_slot => parseSlot(a, input, start, nodes, offset),
+        .t_include => parseInclude(a, input, start, nodes, offset),
+        .t_for => parseFor(a, input, start, nodes, offset),
+        .t_if => parseConditional(a, input, start, nodes, offset),
         .t_else, .t_elif => error.MalformedElement,
     };
 }
@@ -172,7 +174,7 @@ fn flushText(a: Allocator, nodes: *std.ArrayList(Node), input: []const u8, start
 
 // ---- Element parsers ----
 
-fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), escape: bool) ParseError!usize {
+fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), escape: bool, offset: usize) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const is_self_closing = tag_end > 0 and rest[tag_end - 1] == '/';
@@ -190,16 +192,22 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
         const close_str: []const u8 = if (escape) comptime closeTag("var") else comptime closeTag("raw");
         const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], close_str) orelse
             return error.MalformedElement;
-        default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos]);
+        default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
         consumed = tag_end + 1 + close_pos + close_str.len;
     }
 
-    const variable: N.Variable = .{ .name = name, .transform = xform, .default_body = default_body, .has_body = has_body };
+    const variable: N.Variable = .{
+        .name = name,
+        .transform = xform,
+        .default_body = default_body,
+        .has_body = has_body,
+        .source_pos = offset + start,
+    };
     try nodes.append(a, if (escape) .{ .variable = variable } else .{ .raw_variable = variable });
     return start + consumed;
 }
 
-fn parseLet(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
+fn parseLet(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const tag = rest[0 .. tag_end + 1];
@@ -209,9 +217,14 @@ fn parseLet(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
     const let_close = comptime closeTag("let");
     const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], let_close) orelse
         return error.MalformedElement;
-    const body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos]);
+    const body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
 
-    try nodes.append(a, .{ .let_binding = .{ .name = name, .transform = xform, .body = body } });
+    try nodes.append(a, .{ .let_binding = .{
+        .name = name,
+        .transform = xform,
+        .body = body,
+        .source_pos = offset + start,
+    } });
     return start + tag_end + 1 + close_pos + let_close.len;
 }
 
@@ -226,16 +239,16 @@ fn parseComment(input: []const u8, start: usize) ParseError!usize {
     return start + tag_end + 1 + close_pos + comment_close.len;
 }
 
-fn parseAttrOutput(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
+fn parseAttrOutput(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const end_offset = std.mem.indexOf(u8, rest, "/>") orelse return error.MalformedElement;
     const tag = rest[0 .. end_offset + 2];
     const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
-    try nodes.append(a, .{ .attr_output = .{ .name = name } });
+    try nodes.append(a, .{ .attr_output = .{ .name = name, .source_pos = offset + start } });
     return start + end_offset + 2;
 }
 
-fn parseSlot(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
+fn parseSlot(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const is_self_closing = tag_end > 0 and rest[tag_end - 1] == '/';
@@ -243,20 +256,20 @@ fn parseSlot(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayLis
     const name = h.extractAttrValue(tag, "name") orelse "";
 
     if (is_self_closing) {
-        try nodes.append(a, .{ .slot = .{ .name = name } });
+        try nodes.append(a, .{ .slot = .{ .name = name, .source_pos = offset + start } });
         return start + tag_end + 1;
     }
 
     const slot_close = comptime closeTag("slot");
     const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], slot_close) orelse
         return error.MalformedElement;
-    const default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos]);
+    const default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
 
-    try nodes.append(a, .{ .slot = .{ .name = name, .default_body = default_body } });
+    try nodes.append(a, .{ .slot = .{ .name = name, .default_body = default_body, .source_pos = offset + start } });
     return start + tag_end + 1 + close_pos + slot_close.len;
 }
 
-fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
+fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const is_self_closing = tag_end > 0 and rest[tag_end - 1] == '/';
@@ -274,7 +287,7 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
         const raw_body = rest[tag_end + 1 .. tag_end + 1 + close_pos];
         const strip = try indent_mod.stripCommonIndent(a, raw_body);
         consumed = tag_end + 1 + close_pos + include_close.len;
-        if (strip.slice.len > 0) result = try parseDefines(a, strip.slice);
+        if (strip.slice.len > 0) result = try parseDefines(a, strip.slice, offset + start + tag_end + 1);
     }
 
     try nodes.append(a, .{ .include = .{
@@ -283,11 +296,12 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
         .defines = result.defines,
         .anonymous_body = result.anonymous_body,
         .anonymous_body_source = result.anonymous_body_source,
+        .source_pos = offset + start,
     } });
     return start + consumed;
 }
 
-fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
+fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const tag = rest[0 .. tag_end + 1];
@@ -297,7 +311,7 @@ fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
     const for_close = comptime closeTag("for");
     const close_offset = h.findMatchingClose(input[body_start..], openTag("for"), for_close) orelse
         return error.MalformedElement;
-    const body = try parseContent(a, input[body_start .. body_start + close_offset]);
+    const body = try parseContent(a, input[body_start .. body_start + close_offset], offset + body_start);
 
     try nodes.append(a, .{ .loop = .{
         .item_prefix = attrs.item_prefix,
@@ -308,6 +322,7 @@ fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
         .limit = attrs.limit,
         .offset = attrs.offset,
         .body = body,
+        .source_pos = offset + start,
     } });
     return body_start + close_offset + for_close.len;
 }
@@ -349,7 +364,7 @@ fn extractWord(input: []const u8, start: usize) []const u8 {
     return input[start..end];
 }
 
-fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node)) ParseError!usize {
+fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const if_tag = rest[0 .. tag_end + 1];
@@ -359,16 +374,18 @@ fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.A
     const close_pos = h.findMatchingClose(rest[body_start..], openTag("if"), if_close) orelse
         return error.MalformedElement;
     const full_body = rest[body_start .. body_start + close_pos];
-    const result = try parseBranches(a, if_tag, full_body);
+    const body_offset = offset + start + body_start;
+    const result = try parseBranches(a, if_tag, full_body, body_offset);
 
     try nodes.append(a, .{ .conditional = .{
         .branches = result.branches,
         .else_body = result.else_body,
+        .source_pos = offset + start,
     } });
     return start + body_start + close_pos + if_close.len;
 }
 
-fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8) ParseError!struct {
+fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8, body_offset: usize) ParseError!struct {
     branches: []const N.Branch,
     else_body: []const Node,
 } {
@@ -377,7 +394,7 @@ fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8) ParseE
     const if_body_source = if (first_sep) |sep| full_body[0..sep.pos] else full_body;
     try branches.append(a, .{
         .condition = parseCondition(if_tag),
-        .body = try parseContent(a, if_body_source),
+        .body = try parseContent(a, if_body_source, body_offset),
     });
 
     var else_body: []const Node = &.{};
@@ -385,7 +402,7 @@ fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8) ParseE
         var cursor = first;
         while (true) {
             if (cursor.is_else) {
-                else_body = try parseContent(a, full_body[cursor.pos + cursor.tag_len ..]);
+                else_body = try parseContent(a, full_body[cursor.pos + cursor.tag_len ..], body_offset + cursor.pos + cursor.tag_len);
                 break;
             }
             const elif_tag = full_body[cursor.pos .. cursor.pos + cursor.tag_len];
@@ -394,7 +411,7 @@ fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8) ParseE
             const body_src = if (next_sep) |ns| full_body[next_start..ns.pos] else full_body[next_start..];
             try branches.append(a, .{
                 .condition = parseCondition(elif_tag),
-                .body = try parseContent(a, body_src),
+                .body = try parseContent(a, body_src, body_offset + next_start),
             });
             if (next_sep) |ns| {
                 cursor = ns;
@@ -408,7 +425,7 @@ fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8) ParseE
     };
 }
 
-fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node)) ParseError!void {
+fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node), tag_offset: usize) ParseError!void {
     var segments: std.ArrayList(N.Segment) = .{};
     var literal_start: usize = 0;
     var i: usize = 0;
@@ -428,7 +445,10 @@ fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node)) Par
     }
 
     if (literal_start < tag.len) try segments.append(a, .{ .literal = tag[literal_start..] });
-    try nodes.append(a, .{ .bound_tag = .{ .segments = try segments.toOwnedSlice(a) } });
+    try nodes.append(a, .{ .bound_tag = .{
+        .segments = try segments.toOwnedSlice(a),
+        .source_pos = tag_offset,
+    } });
 }
 
 const BindingMatch = struct { len: usize, is_var: bool };
@@ -465,7 +485,7 @@ const DefineResult = struct {
     anonymous_body_source: []const u8 = "",
 };
 
-fn parseDefines(a: Allocator, body: []const u8) ParseError!DefineResult {
+fn parseDefines(a: Allocator, body: []const u8, body_offset: usize) ParseError!DefineResult {
     const define_open = openTag("define");
     const define_close = comptime closeTag("define");
     var defines: std.ArrayList(N.Define) = .{};
@@ -475,7 +495,7 @@ fn parseDefines(a: Allocator, body: []const u8) ParseError!DefineResult {
 
     while (i < body.len) {
         if (std.mem.startsWith(u8, body[i..], define_open)) {
-            const result = try parseSingleDefine(a, body[i..], define_close);
+            const result = try parseSingleDefine(a, body[i..], define_close, body_offset + i);
             for (seen_names.items) |seen| {
                 if (std.mem.eql(u8, seen, result.name)) return error.DuplicateSlotDefinition;
             }
@@ -491,7 +511,7 @@ fn parseDefines(a: Allocator, body: []const u8) ParseError!DefineResult {
     const trimmed = std.mem.trim(u8, anon_parts.items, " \t\r\n");
     return .{
         .defines = try defines.toOwnedSlice(a),
-        .anonymous_body = if (trimmed.len > 0) try parseContent(a, trimmed) else &.{},
+        .anonymous_body = if (trimmed.len > 0) try parseContent(a, trimmed, body_offset) else &.{},
         .anonymous_body_source = if (trimmed.len > 0) try a.dupe(u8, trimmed) else "",
     };
 }
@@ -502,7 +522,7 @@ const ParsedDefine = struct {
     consumed: usize,
 };
 
-fn parseSingleDefine(a: Allocator, rest: []const u8, define_close: []const u8) ParseError!ParsedDefine {
+fn parseSingleDefine(a: Allocator, rest: []const u8, define_close: []const u8, define_offset: usize) ParseError!ParsedDefine {
     const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
     const tag = rest[0 .. tag_end + 1];
     const name = h.extractAttrValue(tag, "name") orelse
@@ -515,7 +535,7 @@ fn parseSingleDefine(a: Allocator, rest: []const u8, define_close: []const u8) P
     const stripped = try indent_mod.stripCommonIndent(a, raw);
     const raw_source = try a.dupe(u8, stripped.slice);
     return .{
-        .define = .{ .name = name, .body = try parseContent(a, stripped.slice), .raw_source = raw_source },
+        .define = .{ .name = name, .body = try parseContent(a, stripped.slice, define_offset + content_start), .raw_source = raw_source },
         .name = name,
         .consumed = content_start + close + define_close.len,
     };
@@ -897,4 +917,20 @@ test "parse duplicate slot definition is error" {
     ;
     const result = parse(testing.allocator, source);
     try testing.expectError(error.DuplicateSlotDefinition, result);
+}
+
+test "parse source positions" {
+    var result = try parse(testing.allocator, "hi <t-var name=\"x\" />");
+    defer result.deinit();
+    try testing.expectEqual(@as(usize, 2), result.nodes.len);
+    try testing.expectEqual(@as(usize, 3), result.nodes[1].variable.source_pos);
+}
+
+test "parse nested source positions" {
+    var result = try parse(testing.allocator, "<t-if var=\"a\">XY<t-var name=\"b\" /></t-if>");
+    defer result.deinit();
+    const body = result.nodes[0].conditional.branches[0].body;
+    try testing.expectEqual(@as(usize, 2), body.len);
+    const var_pos = body[1].variable.source_pos;
+    try testing.expectEqual(@as(usize, 16), var_pos);
 }
