@@ -1,0 +1,176 @@
+= Getting Started with Toupee
+
+Toupee is a build-time HTML template engine. You give it templates and data; it gives you rendered HTML.
+
+== Adding toupee to your project
+
+Add toupee as a Zig dependency in your `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .toupee = .{
+        .path = "../toupee",
+    },
+},
+```
+
+Then in `build.zig`:
+
+```zig
+const toupee_mod = b.dependency("toupee", .{}).module("toupee");
+exe.root_module.addImport("toupee", toupee_mod);
+```
+
+== Basic rendering
+
+The simplest use of toupee renders a template with variable substitution:
+
+```zig
+const std = @import("std");
+const toupee = @import("toupee");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const a = gpa.allocator();
+
+    const template = "<h1><t-var name=\"title\" /></h1>";
+
+    var ctx: toupee.Context = .{};
+    defer ctx.deinit(a);
+    try ctx.putVar(a, "title", "Hello World");
+
+    var resolver: toupee.Resolver = .{};
+    defer resolver.deinit(a);
+
+    const html = try toupee.render(a, template, &ctx, &resolver);
+    defer a.free(html);
+
+    std.debug.print("{s}\n", .{html});
+    // Output: <h1>Hello World</h1>
+}
+```
+
+== Template inheritance
+
+Most sites use a base layout that pages extend:
+
+```html
+<!-- base.html -->
+<html>
+<head><title><t-var name="site.title" /></title></head>
+<body>
+  <t-slot />
+</body>
+</html>
+```
+
+```html
+<!-- page template -->
+<t-extend template="base.html">
+<t-define name="">
+  <h1><t-var name="page.title" /></h1>
+  <p>Page content here.</p>
+</t-define>
+```
+
+Register templates in the resolver by name:
+
+```zig
+var resolver: toupee.Resolver = .{};
+try resolver.put(a, "base.html", base_html);
+```
+
+== Component inclusion
+
+Reusable components are included with `<t-include>`:
+
+```html
+<!-- card.html -->
+<div class="card">
+  <h2><t-attr name="title" /></h2>
+  <t-slot />
+</div>
+```
+
+```html
+<!-- usage -->
+<t-include template="card.html" title="My Card">
+  <p>Card body content</p>
+</t-include>
+```
+
+Attributes on the include tag (except `template`) are passed to the included template as `attrs`.
+
+== Collections and loops
+
+Populate collections for iteration:
+
+```zig
+var entries = try a.alloc(toupee.Entry, 2);
+entries[0] = .{};
+try entries[0].values.put(a, "title", "First Post");
+entries[1] = .{};
+try entries[1].values.put(a, "title", "Second Post");
+try ctx.putCollection(a, "posts", entries);
+```
+
+```html
+<t-for post in posts sort="title">
+  <article><t-var name="post.title" /></article>
+</t-for>
+```
+
+== Conditionals
+
+Show or hide content based on data:
+
+```html
+<t-if var="show_nav">
+  <nav>Navigation here</nav>
+<t-else />
+  <p>No navigation</p>
+</t-if>
+```
+
+Strict existence: `<t-if var="x">` is true even if `x` is an empty string. Use `not-exists` to check for genuinely missing variables.
+
+== Transforms
+
+Transform variable values inline:
+
+```html
+<t-var name="title" transform="slugify" />
+<t-var name="name" transform="trim|capitalize" />
+<t-var name="missing" transform="default:Untitled" />
+```
+
+Transforms are pipe-chained left to right.
+
+== Pretty-printing
+
+Use `renderFormatted` for indented HTML output:
+
+```zig
+const formatted = try toupee.renderFormatted(a, template, &ctx, &resolver);
+defer a.free(formatted);
+```
+
+This applies a 2-space indentation pass to the rendered output.
+
+== Error handling
+
+All render functions return `RenderError`. Use `ErrorDetail` for source location:
+
+```zig
+var err_detail: toupee.ErrorDetail = .{};
+var ctx: toupee.Context = .{};
+ctx.err_detail = &err_detail;
+
+const result = toupee.render(a, template, &ctx, &resolver) catch |err| {
+    std.debug.print("Error at line {d}, col {d}: {s}\n", .{
+        err_detail.line, err_detail.column, err_detail.message,
+    });
+    return err;
+};
+```

@@ -1,0 +1,236 @@
+= Toupee Element Reference
+
+All template elements use the `t-` prefix. This prefix is a comptime constant in `Engine.zig`.
+
+== Template Inheritance
+
+=== `<t-extend>`
+
+Inherit from a parent template. Must be the first non-whitespace content in a template.
+
+```
+<t-extend template="base.html">
+<t-define name="title">My Page</t-define>
+<t-define name="">Body content</t-define>
+```
+
+The `template` attribute names a template registered in the `Resolver`. Extend chains can be arbitrarily deep (up to 50 levels). Circular references are detected and produce `CircularReference`.
+
+=== `<t-define>`
+
+Fill a named slot when used inside `<t-extend>` or `<t-include>`.
+
+```
+<t-define name="sidebar">Sidebar content</t-define>
+<t-define name="">Anonymous slot content</t-define>
+```
+
+The `name` attribute identifies which slot to fill. An empty name (`name=""`) fills the anonymous/default slot. Duplicate definitions within the same include body produce `DuplicateSlotDefinition`.
+
+=== `<t-slot>`
+
+Mark an insertion point in a parent or included template.
+
+```
+<t-slot name="title" />
+<t-slot name="footer">Default footer content</t-slot>
+<t-slot />
+```
+
+Self-closing slots render nothing if unfilled. Block slots render their default content if unfilled. Nameless slots are the anonymous/default slot.
+
+== Variables
+
+=== `<t-var>`
+
+Insert a variable value with HTML escaping.
+
+```
+<t-var name="page.title" />
+<t-var name="missing">fallback content</t-var>
+<t-var name="title" transform="upper" />
+```
+
+Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use flat dot notation --- `page.title` is a single key, not a nested lookup.
+
+=== `<t-raw>`
+
+Insert a variable value without HTML escaping.
+
+```
+<t-raw name="content" />
+<t-raw name="missing"><em>fallback</em></t-raw>
+```
+
+Same semantics as `<t-var>` except output is not escaped. Use for pre-rendered HTML content.
+
+=== `<t-let>`
+
+Capture rendered content into a variable for later use.
+
+```
+<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let>
+<a href="/<t-var name="slug" />"><t-var name="page.title" /></a>
+```
+
+The body is rendered, optionally transformed, and stored in the variable. The variable is available for the remainder of the current template scope.
+
+== Attribute Binding
+
+=== `t-var:attr`
+
+Bind a context variable to an HTML attribute. If the variable is missing, the attribute is omitted entirely.
+
+```
+<a t-var:href="post.url" t-var:title="post.label">link</a>
+```
+
+Values are HTML-escaped.
+
+=== `t-attr:attr`
+
+Bind an include attribute to an HTML attribute. Same semantics as `t-var:` but reads from `attrs` instead of `vars`.
+
+```
+<div t-attr:class="variant">content</div>
+```
+
+== Component Inclusion
+
+=== `<t-include>`
+
+Include another template with attribute passing and optional body.
+
+```
+<t-include template="nav.html" class="site-nav" />
+
+<t-include template="card.html" variant="primary">
+  <t-define name="title"><h2>Card Title</h2></t-define>
+  <p>Card body (anonymous slot)</p>
+</t-include>
+```
+
+All attributes except `template` are passed as `attrs` to the included template. The body can contain `<t-define>` blocks for named slots and/or plain content for the anonymous slot.
+
+=== `<t-attr>`
+
+Access an include attribute inside an included template.
+
+```
+<button class="btn"><t-attr name="label" /></button>
+```
+
+Self-closing only. Renders the attribute value with HTML escaping.
+
+== Control Flow
+
+=== `<t-if>`
+
+Conditional rendering based on variable, attribute, or slot existence/value.
+
+```
+<t-if var="x">shown when x exists</t-if>
+<t-if var="x" equals="hello">exact match</t-if>
+<t-if var="x" not-equals="hello">not equal</t-if>
+<t-if var="x" not-exists>truly missing (empty string counts as existing)</t-if>
+<t-if attr="variant">has variant attribute</t-if>
+<t-if slot="sidebar">sidebar slot was defined</t-if>
+```
+
+Existence semantics: `<t-if var="x">` is true if `x` is present, even if its value is an empty string. `not-exists` is true *only* when the variable is genuinely absent.
+
+=== `<t-elif>` and `<t-else>`
+
+Conditional branches. Must appear inside a `<t-if>` block. Self-closing separators.
+
+```
+<t-if var="a">A
+<t-elif var="b" />B
+<t-else />C
+</t-if>
+```
+
+`<t-elif>` accepts the same attributes as `<t-if>`.
+
+=== `<t-for>`
+
+Iterate over a collection.
+
+```
+<t-for post in posts sort="date" order="desc" limit="5" offset="1" as loop>
+  <h2><t-var name="post.title" /></h2>
+  <span>#<t-var name="loop.number" /></span>
+</t-for>
+```
+
+Attributes:
+
+- `sort="field"` --- sort entries by the named field (ascending by default)
+- `order="desc"` --- descending sort
+- `limit="N"` --- limit to N entries after sorting
+- `offset="N"` --- skip first N entries after sorting
+- `as alias` --- expose `alias.index` (0-based) and `alias.number` (1-based)
+
+Entry fields are accessed as `prefix.field` where `prefix` is the loop variable name.
+
+Empty or missing collections render nothing (no error).
+
+== Other Elements
+
+=== `<t-comment>`
+
+Template-only comment. Content is stripped from output.
+
+```
+<t-comment>This will not appear in the rendered HTML</t-comment>
+<t-comment />
+```
+
+Both block and self-closing forms are supported.
+
+== Transforms
+
+Applied via `transform="name"` on `<t-var>`, `<t-raw>`, and `<t-let>`. Multiple transforms are pipe-chained: `transform="trim|lower|slugify"`.
+
+=== `upper`
+
+Convert to uppercase. No arguments.
+
+=== `lower`
+
+Convert to lowercase. No arguments.
+
+=== `capitalize`
+
+Title case: capitalize the first letter of each word. No arguments.
+
+=== `trim`
+
+Strip leading and trailing whitespace. No arguments.
+
+=== `slugify`
+
+Lowercase, replace non-alphanumeric characters with hyphens, collapse consecutive hyphens, strip leading/trailing hyphens. No arguments.
+
+=== `truncate:N`
+
+Truncate to N characters. No ellipsis. If the string is shorter than N, returns it unchanged.
+
+=== `replace:from:to`
+
+Replace all occurrences of `from` with `to`. Both arguments are required (use empty `to` to delete).
+
+=== `default:value`
+
+If the variable is empty or missing, use `value` instead.
+
+== Errors
+
+| Error | Cause |
+| --- | --- |
+| `MalformedElement` | Unclosed tag, missing required attribute, unknown transform |
+| `TemplateNotFound` | Referenced template not registered in Resolver |
+| `CircularReference` | Extend chain cycle or render depth > 50 |
+| `DuplicateSlotDefinition` | Same slot defined twice in one include body |
+| `UndefinedVariable` | Variable missing with no default body or default transform |
+| `OutOfMemory` | Allocator exhausted |
