@@ -126,13 +126,13 @@ fn renderVariable(
         return error.UndefinedVariable;
     }
 
-    if (v.transform.len > 0) value = try applyTransforms(state.a, value, v.transform);
+    if (v.transform.len > 0) value = try applyTransforms(state, value, v.transform);
     if (escape) try h.appendEscaped(state.a, out, value) else try out.appendSlice(state.a, value);
 }
 
 fn renderLet(state: State, lb: N.LetBinding, ctx: *Context, depth: usize) RenderError!void {
     var rendered = try renderNodes(state, lb.body, ctx, depth);
-    if (lb.transform.len > 0) rendered = try applyTransforms(state.a, rendered, lb.transform);
+    if (lb.transform.len > 0) rendered = try applyTransforms(state, rendered, lb.transform);
     try ctx.putData(state.a, lb.name, .{ .string = rendered });
 }
 
@@ -371,91 +371,19 @@ fn hasDefaultTransform(steps: []const N.TransformStep) bool {
     return false;
 }
 
-fn applyTransforms(a: Allocator, value: []const u8, steps: []const N.TransformStep) RenderError![]u8 {
-    var current = try a.dupe(u8, value);
+fn applyTransforms(state: State, value: []const u8, steps: []const N.TransformStep) RenderError![]u8 {
+    var current = try state.a.dupe(u8, value);
     for (steps) |step| {
-        current = try applyOne(a, current, step.name, step.args);
+        current = try applyOne(state, current, step.name, step.args);
     }
     return current;
 }
 
-fn applyOne(a: Allocator, value: []const u8, name: []const u8, args: []const []const u8) RenderError![]u8 {
-    if (std.mem.eql(u8, name, "upper")) return upperTransform(a, value);
-    if (std.mem.eql(u8, name, "lower")) return lowerTransform(a, value);
-    if (std.mem.eql(u8, name, "capitalize")) return capitalizeTransform(a, value);
-    if (std.mem.eql(u8, name, "trim")) return a.dupe(u8, std.mem.trim(u8, value, " \t\n\r"));
-    if (std.mem.eql(u8, name, "slugify")) return slugifyTransform(a, value);
-    if (std.mem.eql(u8, name, "truncate")) return truncateTransform(a, value, args);
-    if (std.mem.eql(u8, name, "replace")) return replaceTransform(a, value, args);
-    if (std.mem.eql(u8, name, "default")) return defaultTransform(a, value, args);
+fn applyOne(state: State, value: []const u8, name: []const u8, args: []const []const u8) RenderError![]u8 {
+    if (state.registry) |reg| {
+        if (reg.get(name)) |func| return func(state.a, value, args);
+    }
     return error.MalformedElement;
-}
-
-fn upperTransform(a: Allocator, value: []const u8) RenderError![]u8 {
-    const buf = try a.alloc(u8, value.len);
-    for (buf, value) |*b, c| b.* = std.ascii.toUpper(c);
-    return buf;
-}
-
-fn lowerTransform(a: Allocator, value: []const u8) RenderError![]u8 {
-    const buf = try a.alloc(u8, value.len);
-    for (buf, value) |*b, c| b.* = std.ascii.toLower(c);
-    return buf;
-}
-
-fn capitalizeTransform(a: Allocator, value: []const u8) RenderError![]u8 {
-    const buf = try a.alloc(u8, value.len);
-    var prev_space = true;
-    for (buf, value) |*b, c| {
-        b.* = if (prev_space and std.ascii.isAlphabetic(c)) std.ascii.toUpper(c) else c;
-        prev_space = c == ' ' or c == '\t' or c == '\n';
-    }
-    return buf;
-}
-
-fn slugifyTransform(a: Allocator, value: []const u8) RenderError![]u8 {
-    var result: std.ArrayList(u8) = .{};
-    var prev_hyphen = true;
-    for (value) |c| {
-        if (std.ascii.isAlphanumeric(c)) {
-            try result.append(a, std.ascii.toLower(c));
-            prev_hyphen = false;
-        } else if (!prev_hyphen) {
-            try result.append(a, '-');
-            prev_hyphen = true;
-        }
-    }
-    if (result.items.len > 0 and result.items[result.items.len - 1] == '-') _ = result.pop();
-    return result.toOwnedSlice(a);
-}
-
-fn truncateTransform(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
-    if (args.len == 0) return error.MalformedElement;
-    const n = std.fmt.parseInt(usize, args[0], 10) catch return error.MalformedElement;
-    return a.dupe(u8, if (value.len <= n) value else value[0..n]);
-}
-
-fn replaceTransform(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
-    if (args.len < 1) return error.MalformedElement;
-    const old = args[0];
-    const new = if (args.len > 1) args[1] else "";
-    var result: std.ArrayList(u8) = .{};
-    var i: usize = 0;
-    while (i < value.len) {
-        if (old.len > 0 and i + old.len <= value.len and std.mem.eql(u8, value[i .. i + old.len], old)) {
-            try result.appendSlice(a, new);
-            i += old.len;
-        } else {
-            try result.append(a, value[i]);
-            i += 1;
-        }
-    }
-    return result.toOwnedSlice(a);
-}
-
-fn defaultTransform(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
-    const def = if (args.len > 0) args[0] else "";
-    return a.dupe(u8, if (value.len == 0) def else value);
 }
 
 // ---- Error helpers ----
