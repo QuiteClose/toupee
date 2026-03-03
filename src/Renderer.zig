@@ -4,9 +4,9 @@ const N = @import("Node.zig");
 const Node = N.Node;
 const Ctx = @import("Context.zig");
 const Context = Ctx.Context;
-const Entry = Ctx.Entry;
 const Resolver = Ctx.Resolver;
 const RenderError = Ctx.RenderError;
+const V = @import("Value.zig");
 const h = @import("html.zig");
 const transform = @import("transform.zig");
 const indent_mod = @import("indent.zig");
@@ -15,20 +15,19 @@ const Parser = @import("Parser.zig");
 const max_depth = 50;
 
 pub fn render(a: Allocator, nodes: []const Node, ctx: *const Context, resolver: *const Resolver) RenderError![]const u8 {
-    var owned_vars: @TypeOf(ctx.vars) = .{};
-    defer owned_vars.deinit(a);
-    var it = ctx.vars.iterator();
-    while (it.next()) |kv| try owned_vars.put(a, kv.key_ptr.*, kv.value_ptr.*);
+    var owned_data: V.Map = .{};
+    defer owned_data.deinit(a);
+    var it = ctx.data.iterator();
+    while (it.next()) |kv| try owned_data.put(a, kv.key_ptr.*, kv.value_ptr.*);
 
     var mutable_ctx: Context = .{
-        .vars = owned_vars,
+        .data = owned_data,
         .attrs = ctx.attrs,
         .slots = ctx.slots,
-        .collections = ctx.collections,
         .err_detail = ctx.err_detail,
     };
     const result = try renderNodes(a, nodes, &mutable_ctx, resolver, 0);
-    owned_vars = mutable_ctx.vars;
+    owned_data = mutable_ctx.data;
     return result;
 }
 
@@ -76,7 +75,7 @@ fn renderVariable(
     var value: []const u8 = "";
     var value_allocated = false;
 
-    if (ctx.getVar(v.name)) |val| {
+    if (ctx.resolveString(v.name)) |val| {
         value = val;
     } else if (v.has_body) {
         if (v.default_body.len > 0) {
@@ -117,10 +116,10 @@ fn renderLet(
         const transformed = try applyTransforms(a, rendered, lb.transform);
         a.free(rendered);
         try let_allocs.append(a, transformed);
-        try ctx.putVar(a, lb.name, transformed);
+        try ctx.putData(a, lb.name, .{ .string = transformed });
     } else {
         try let_allocs.append(a, rendered);
-        try ctx.putVar(a, lb.name, rendered);
+        try ctx.putData(a, lb.name, .{ .string = rendered });
     }
 }
 
@@ -179,10 +178,9 @@ fn renderInclude(
     for (inc.attrs) |attr| try inc_attrs.put(a, attr.name, attr.value);
 
     var child_ctx: Context = .{
-        .vars = ctx.vars,
+        .data = ctx.data,
         .attrs = inc_attrs,
         .slots = child_slots,
-        .collections = ctx.collections,
         .err_detail = ctx.err_detail,
     };
 
@@ -229,10 +227,9 @@ fn renderExtend(
 
         if (parent_parse.nodes[0] != .extend) {
             var render_ctx: Context = .{
-                .vars = ctx.vars,
+                .data = ctx.data,
                 .attrs = ctx.attrs,
                 .slots = slots,
-                .collections = ctx.collections,
                 .err_detail = ctx.err_detail,
             };
             const rendered = try renderNodes(a, parent_parse.nodes, &render_ctx, resolver, depth);
@@ -286,11 +283,6 @@ fn renderConditional(
 }
 
 fn evaluateCondition(cond: N.Condition, ctx: *const Context) bool {
-    const value: ?[]const u8 = switch (cond.source) {
-        .variable => ctx.getVar(cond.name),
-        .attr => ctx.getAttr(cond.name),
-        .slot => if (ctx.hasSlot(cond.name)) "" else null,
-    };
     if (cond.source == .slot) {
         const exists = ctx.hasSlot(cond.name);
         return switch (cond.comparison) {
@@ -298,7 +290,16 @@ fn evaluateCondition(cond: N.Condition, ctx: *const Context) bool {
             else => exists,
         };
     }
-    return evalComparison(cond.comparison, value);
+    if (cond.source == .attr) {
+        return evalComparison(cond.comparison, ctx.getAttr(cond.name));
+    }
+    const resolved = ctx.resolve(cond.name);
+    return switch (cond.comparison) {
+        .exists => resolved != null,
+        .not_exists => resolved == null,
+        .equals => |expected| if (resolved) |rv| std.mem.eql(u8, rv.asString() orelse "", expected) else false,
+        .not_equals => |expected| if (resolved) |rv| !std.mem.eql(u8, rv.asString() orelse "", expected) else true,
+    };
 }
 
 fn evalComparison(comparison: N.Condition.Comparison, value: ?[]const u8) bool {
@@ -318,9 +319,10 @@ fn renderLoop(
     depth: usize,
     out: *std.ArrayList(u8),
 ) RenderError!void {
-    const entries = ctx.getCollection(loop.collection) orelse return;
+    const resolved = ctx.resolve(loop.collection) orelse return;
+    const list = resolved.asList() orelse return;
 
-    const items = try a.dupe(Entry, entries);
+    const items = try a.dupe(V.Value, list);
     defer a.free(items);
 
     if (loop.sort_field) |field| {
@@ -328,62 +330,52 @@ fn renderLoop(
             field_name: []const u8,
             descending: bool,
 
-            pub fn lessThan(self: @This(), lhs: Entry, rhs: Entry) bool {
-                const a_val = lhs.get(self.field_name) orelse "";
-                const b_val = rhs.get(self.field_name) orelse "";
+            pub fn lessThan(self: @This(), lhs: V.Value, rhs: V.Value) bool {
+                const a_val = if (lhs.resolve(self.field_name)) |v| v.asString() orelse "" else "";
+                const b_val = if (rhs.resolve(self.field_name)) |v| v.asString() orelse "" else "";
                 const cmp = std.mem.order(u8, a_val, b_val);
                 if (self.descending) return cmp == .gt;
                 return cmp == .lt;
             }
         };
-        std.mem.sort(Entry, items, Sort{ .field_name = field, .descending = loop.order_desc }, Sort.lessThan);
+        std.mem.sort(V.Value, items, Sort{ .field_name = field, .descending = loop.order_desc }, Sort.lessThan);
     }
 
     const off = if (loop.offset) |o| @min(o, items.len) else 0;
     const sliced = items[off..];
     const final = if (loop.limit) |l| sliced[0..@min(l, sliced.len)] else sliced;
 
-    for (final, 0..) |entry, idx| {
-        var child_ctx: Context = .{
-            .attrs = ctx.attrs,
-            .slots = ctx.slots,
-            .collections = ctx.collections,
-            .err_detail = ctx.err_detail,
-        };
+    for (final, 0..) |item, idx| {
+        var child_data: V.Map = .{};
+        defer child_data.deinit(a);
+        var dit = ctx.data.iterator();
+        while (dit.next()) |kv| try child_data.put(a, kv.key_ptr.*, kv.value_ptr.*);
 
-        var child_vars: @TypeOf(ctx.vars) = .{};
-        var vit = ctx.vars.iterator();
-        while (vit.next()) |kv| try child_vars.put(a, kv.key_ptr.*, kv.value_ptr.*);
+        try child_data.put(a, loop.item_prefix, item);
 
-        var allocated_keys: std.ArrayList([]const u8) = .{};
+        var allocs: std.ArrayList([]const u8) = .{};
         defer {
-            for (allocated_keys.items) |k| a.free(k);
-            allocated_keys.deinit(a);
-        }
-
-        var entry_it = entry.values.iterator();
-        while (entry_it.next()) |kv| {
-            const prefixed = try std.fmt.allocPrint(a, "{s}.{s}", .{ loop.item_prefix, kv.key_ptr.* });
-            try allocated_keys.append(a, prefixed);
-            try child_vars.put(a, prefixed, kv.value_ptr.*);
+            for (allocs.items) |s| a.free(s);
+            allocs.deinit(a);
         }
 
         if (loop.alias) |alias| {
-            const idx_key = try std.fmt.allocPrint(a, "{s}.index", .{alias});
-            try allocated_keys.append(a, idx_key);
+            var alias_map: V.Map = .{};
             const idx_str = try std.fmt.allocPrint(a, "{d}", .{idx});
-            try allocated_keys.append(a, idx_str);
-            try child_vars.put(a, idx_key, idx_str);
-
-            const num_key = try std.fmt.allocPrint(a, "{s}.number", .{alias});
-            try allocated_keys.append(a, num_key);
+            try allocs.append(a, idx_str);
             const num_str = try std.fmt.allocPrint(a, "{d}", .{idx + 1});
-            try allocated_keys.append(a, num_str);
-            try child_vars.put(a, num_key, num_str);
+            try allocs.append(a, num_str);
+            try alias_map.put(a, "index", .{ .string = idx_str });
+            try alias_map.put(a, "number", .{ .string = num_str });
+            try child_data.put(a, alias, .{ .map = alias_map });
         }
 
-        child_ctx.vars = child_vars;
-        defer child_vars.deinit(a);
+        var child_ctx: Context = .{
+            .data = child_data,
+            .attrs = ctx.attrs,
+            .slots = ctx.slots,
+            .err_detail = ctx.err_detail,
+        };
 
         const rendered = try renderNodes(a, loop.body, &child_ctx, resolver, depth + 1);
         defer a.free(rendered);
@@ -396,7 +388,7 @@ fn renderBoundTag(a: Allocator, bt: N.BoundTag, ctx: *const Context, out: *std.A
         switch (segment) {
             .literal => |text| try out.appendSlice(a, text),
             .binding => |b| {
-                const value = if (b.is_var) ctx.getVar(b.ref_name) else ctx.getAttr(b.ref_name);
+                const value = if (b.is_var) ctx.resolveString(b.ref_name) else ctx.getAttr(b.ref_name);
                 if (value) |v| {
                     try out.append(a, ' ');
                     try out.appendSlice(a, b.html_attr);
@@ -518,10 +510,6 @@ fn setErrorDetail(ctx: *Context, message: []const u8) void {
 
 const testing = std.testing;
 
-fn makeNodes(comptime nodes: []const Node) []const Node {
-    return nodes;
-}
-
 test "render plain text" {
     const nodes = [_]Node{.{ .text = "hello" }};
     var ctx: Context = .{};
@@ -534,8 +522,8 @@ test "render plain text" {
 test "render variable" {
     const nodes = [_]Node{.{ .variable = .{ .name = "title" } }};
     var ctx: Context = .{};
-    try ctx.putVar(testing.allocator, "title", "Hello");
-    defer ctx.vars.deinit(testing.allocator);
+    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
+    defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, &resolver);
     defer testing.allocator.free(result);
@@ -545,8 +533,8 @@ test "render variable" {
 test "render variable escapes html" {
     const nodes = [_]Node{.{ .variable = .{ .name = "v" } }};
     var ctx: Context = .{};
-    try ctx.putVar(testing.allocator, "v", "<b>bold</b>");
-    defer ctx.vars.deinit(testing.allocator);
+    try ctx.putData(testing.allocator, "v", .{ .string = "<b>bold</b>" });
+    defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, &resolver);
     defer testing.allocator.free(result);
@@ -556,8 +544,8 @@ test "render variable escapes html" {
 test "render raw variable" {
     const nodes = [_]Node{.{ .raw_variable = .{ .name = "v" } }};
     var ctx: Context = .{};
-    try ctx.putVar(testing.allocator, "v", "<b>bold</b>");
-    defer ctx.vars.deinit(testing.allocator);
+    try ctx.putData(testing.allocator, "v", .{ .string = "<b>bold</b>" });
+    defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, &resolver);
     defer testing.allocator.free(result);
@@ -590,8 +578,8 @@ test "render conditional true branch" {
     }};
     const nodes = [_]Node{.{ .conditional = .{ .branches = &branches } }};
     var ctx: Context = .{};
-    try ctx.putVar(testing.allocator, "show", "1");
-    defer ctx.vars.deinit(testing.allocator);
+    try ctx.putData(testing.allocator, "show", .{ .string = "1" });
+    defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, &resolver);
     defer testing.allocator.free(result);
@@ -621,8 +609,8 @@ test "render bound tag" {
     };
     const nodes = [_]Node{.{ .bound_tag = .{ .segments = &segments } }};
     var ctx: Context = .{};
-    try ctx.putVar(testing.allocator, "url", "/home");
-    defer ctx.vars.deinit(testing.allocator);
+    try ctx.putData(testing.allocator, "url", .{ .string = "/home" });
+    defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, &resolver);
     defer testing.allocator.free(result);

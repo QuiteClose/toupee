@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const Context = @import("Context.zig").Context;
-pub const Entry = @import("Context.zig").Entry;
+pub const Value = @import("Context.zig").Value;
 pub const Resolver = @import("Context.zig").Resolver;
 pub const ErrorDetail = @import("Context.zig").ErrorDetail;
 pub const RenderError = @import("Context.zig").RenderError;

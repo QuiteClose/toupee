@@ -1,13 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const V = @import("Value.zig");
 
-pub const Entry = struct {
-    values: std.StringArrayHashMapUnmanaged([]const u8) = .{},
-
-    pub fn get(self: *const Entry, key: []const u8) ?[]const u8 {
-        return self.values.get(key);
-    }
-};
+pub const Value = V.Value;
 
 pub const ErrorDetail = struct {
     line: usize = 0,
@@ -17,18 +12,23 @@ pub const ErrorDetail = struct {
 };
 
 pub const Context = struct {
-    vars: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+    data: V.Map = .{},
     attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{},
     slots: std.StringArrayHashMapUnmanaged([]const u8) = .{},
-    collections: std.StringArrayHashMapUnmanaged([]const Entry) = .{},
     err_detail: ?*ErrorDetail = null,
 
-    pub fn putVar(self: *Context, a: Allocator, key: []const u8, value: []const u8) !void {
-        try self.vars.put(a, key, value);
+    pub fn resolve(self: *const Context, path: []const u8) ?Value {
+        const root: Value = .{ .map = self.data };
+        return root.resolve(path);
     }
 
-    pub fn getVar(self: *const Context, key: []const u8) ?[]const u8 {
-        return self.vars.get(key);
+    pub fn resolveString(self: *const Context, path: []const u8) ?[]const u8 {
+        const val = self.resolve(path) orelse return null;
+        return val.asString();
+    }
+
+    pub fn putData(self: *Context, a: Allocator, key: []const u8, value: Value) !void {
+        try self.data.put(a, key, value);
     }
 
     pub fn putAttr(self: *Context, a: Allocator, key: []const u8, value: []const u8) !void {
@@ -51,19 +51,10 @@ pub const Context = struct {
         return self.slots.contains(key);
     }
 
-    pub fn putCollection(self: *Context, a: Allocator, name: []const u8, entries: []const Entry) !void {
-        try self.collections.put(a, name, entries);
-    }
-
-    pub fn getCollection(self: *const Context, name: []const u8) ?[]const Entry {
-        return self.collections.get(name);
-    }
-
     pub fn deinit(self: *Context, a: Allocator) void {
-        self.vars.deinit(a);
+        self.data.deinit(a);
         self.attrs.deinit(a);
         self.slots.deinit(a);
-        self.collections.deinit(a);
     }
 };
 
@@ -83,7 +74,6 @@ pub const Resolver = struct {
     }
 };
 
-/// Errors that can occur during template rendering.
 pub const RenderError = error{
     MalformedElement,
     TemplateNotFound,

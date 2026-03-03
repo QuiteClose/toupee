@@ -2,9 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ctx = @import("Context.zig");
 const Context = Ctx.Context;
-const Entry = Ctx.Entry;
 const Resolver = Ctx.Resolver;
 const RenderError = Ctx.RenderError;
+const V = @import("Value.zig");
 const toupee = @import("root.zig");
 
 const TestResults = struct {
@@ -201,6 +201,9 @@ fn trimEnds(s: []const u8) []const u8 {
     return s[start..end];
 }
 
+/// Translation layer: converts the old flat JSON test format into the new
+/// nested Value model. This allows existing .test files to keep working
+/// while the internal Context uses Value.Map.
 fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver: *Resolver) !void {
     const parsed = std.json.parseFromSlice(std.json.Value, a, json_str, .{
         .allocate = .alloc_always,
@@ -222,7 +225,7 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
                 };
-                try ctx.putVar(a, key, val);
+                try putNestedValue(a, &ctx.data, key, .{ .string = val });
             }
         }
     }
@@ -262,10 +265,10 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
                 if (ckv.value_ptr.* != .array) continue;
                 const arr = ckv.value_ptr.array;
 
-                var entries = try a.alloc(Entry, arr.items.len);
+                var items = try a.alloc(V.Value, arr.items.len);
                 for (arr.items, 0..) |item, idx| {
-                    entries[idx] = .{};
                     if (item == .object) {
+                        var entry_map: V.Map = .{};
                         var eit = item.object.iterator();
                         while (eit.next()) |ekv| {
                             const key = try a.dupe(u8, ekv.key_ptr.*);
@@ -273,12 +276,15 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
                                 .string => |s| try a.dupe(u8, s),
                                 else => try a.dupe(u8, ""),
                             };
-                            try entries[idx].values.put(a, key, val);
+                            try entry_map.put(a, key, .{ .string = val });
                         }
+                        items[idx] = .{ .map = entry_map };
+                    } else {
+                        items[idx] = .nil;
                     }
                 }
                 const col_key = try a.dupe(u8, ckv.key_ptr.*);
-                try ctx.putCollection(a, col_key, entries);
+                try putNestedValue(a, &ctx.data, col_key, .{ .list = items });
             }
         }
     }
@@ -295,6 +301,30 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
                 try resolver.put(a, key, val);
             }
         }
+    }
+}
+
+/// Converts a flat dot-separated key into nested Value.Map entries.
+/// e.g. putNestedValue(root, "page.title", .{.string = "Hello"}) creates
+/// root["page"] = .{.map = {"title": .{.string = "Hello"}}}
+fn putNestedValue(a: Allocator, root: *V.Map, path: []const u8, value: V.Value) !void {
+    if (std.mem.indexOfScalar(u8, path, '.')) |dot| {
+        const key = path[0..dot];
+        const rest = path[dot + 1 ..];
+        if (root.getPtr(key)) |existing_ptr| {
+            switch (existing_ptr.*) {
+                .map => |*m| {
+                    try putNestedValue(a, m, rest, value);
+                    return;
+                },
+                else => {},
+            }
+        }
+        var nested: V.Map = .{};
+        try putNestedValue(a, &nested, rest, value);
+        try root.put(a, key, .{ .map = nested });
+    } else {
+        try root.put(a, path, value);
     }
 }
 
@@ -336,8 +366,8 @@ test "toupee test suite" {
             continue;
         };
 
-        const dot = std.mem.lastIndexOfScalar(u8, filename, '.') orelse filename.len;
-        const name = filename[0..dot];
+        const dot_pos = std.mem.lastIndexOfScalar(u8, filename, '.') orelse filename.len;
+        const name = filename[0..dot_pos];
         std.debug.print("  {s}: {d}/{d} passed\n", .{ name, results.passed, results.total() });
         if (results.failed > 0) any_failed = true;
         total.add(results);
