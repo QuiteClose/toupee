@@ -15,9 +15,9 @@ template source ([]const u8)
         │
    []Node (IR)        ← immutable, cacheable
         │
-   Renderer.render()  ← takes Context + Resolver
+   Renderer.render()  ← takes Context + Loader
         │
-   output ([]const u8)
+   output ([]const u8 or Writer)
 ```
 
 The IR is a flat `[]Node` tagged union slice (not a tree). Nesting is expressed through child slices into the same array. All node memory is arena-allocated; freeing the arena frees all nodes.
@@ -35,9 +35,11 @@ The Engine follows a two-phase usage pattern:
 | --- | --- |
 | `root.zig` | Public API: `Engine` (template cache, transform registry, rendering, validation, writer API), convenience `render()`, type re-exports |
 | `Parser.zig` | Template source → `[]Node` IR. Single-pass recursive descent. Populates `ErrorDetail` at all error sites. |
-| `Renderer.zig` | `[]Node` IR + Context → output string. Visitor over the node array. |
+| `Renderer.zig` | `[]Node` IR + Context → output string or writer. `render()` buffers fully; `renderToWriter()` streams top-level nodes. |
 | `Node.zig` | IR type definitions: tagged union + supporting structs (includes `ContextBinding` for scope isolation) |
-| `Context.zig` | `Context`, `Resolver`, `ErrorDetail`, `IncludeEntry`, `RenderError` |
+| `Context.zig` | `Context`, `Loader`, `Resolver`, `ErrorDetail`, `IncludeEntry`, `RenderError` |
+| `FileSystemLoader.zig` | `FileSystemLoader`: loads template sources from a filesystem directory |
+| `ChainLoader.zig` | `ChainLoader`: tries multiple `Loader`s in sequence, returns first match |
 | `Value.zig` | `Value` tagged union (`string`, `boolean`, `integer`, `list`, `map`, `nil`), dot-path resolution |
 | `diagnostic.zig` | `Diagnostic` (validation results), `setError` (shared error-reporting for Parser and Renderer), `extractSourceLine`, `computeCaretLen`, `levenshtein` |
 | `transform.zig` | `Registry`, `TransformFn`, built-in transforms (including `js_escape` for JavaScript string contexts) |
@@ -62,18 +64,20 @@ try engine.addTemplate("page.html", source);
 try engine.registerTransform("date", dateFn);
 
 // Validate before serving
-const diags = try engine.validate(allocator, &resolver);
+var resolver: toupee.Resolver = .{};
+const diags = try engine.validate(allocator, resolver.loader());
 defer allocator.free(diags);
 
 // Serve phase (thread-safe)
-const result = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+const result = try engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});
 defer allocator.free(result);
 ```
 
 ### Convenience (one-shot usage)
 
 ```zig
-const result = try toupee.render(allocator, source, &ctx, &resolver, .{});
+var resolver: toupee.Resolver = .{};
+const result = try toupee.render(allocator, source, &ctx, resolver.loader(), .{});
 defer allocator.free(result);
 ```
 
@@ -92,16 +96,16 @@ defer allocator.free(result);
 
 | Method | Purpose |
 | --- | --- |
-| `renderTemplate(a, name, ctx, resolver, opts)` | Render a cached template |
-| `renderTemplateFormatted(a, name, ctx, resolver, opts)` | Render cached template with pretty-printing |
-| `renderTemplateToWriter(a, name, ctx, resolver, opts, writer)` | Render cached template to a writer |
-| `render(a, source, ctx, resolver, opts)` | Parse and render raw source |
-| `renderFormatted(a, source, ctx, resolver, opts)` | Parse and render with pretty-printing |
-| `renderToWriter(a, source, ctx, resolver, opts, writer)` | Parse and render to a writer |
-| `renderFormattedToWriter(a, source, ctx, resolver, opts, writer)` | Parse, render, pretty-print to a writer |
-| `validate(a, resolver)` | Check all cached templates for missing includes/extends |
-| `renderOwned(a, source, ctx, resolver, opts)` | Render returning a `RenderResult` |
-| `renderTemplateOwned(a, name, ctx, resolver, opts)` | Render cached returning a `RenderResult` |
+| `renderTemplate(a, name, ctx, loader, opts)` | Render a cached template |
+| `renderTemplateFormatted(a, name, ctx, loader, opts)` | Render cached template with pretty-printing |
+| `renderTemplateToWriter(a, name, ctx, loader, opts, writer)` | Render cached template, streaming to a writer |
+| `render(a, source, ctx, loader, opts)` | Parse and render raw source |
+| `renderFormatted(a, source, ctx, loader, opts)` | Parse and render with pretty-printing |
+| `renderToWriter(a, source, ctx, loader, opts, writer)` | Parse and render, streaming to a writer |
+| `renderFormattedToWriter(a, source, ctx, loader, opts, writer)` | Parse, render, pretty-print to a writer |
+| `validate(a, loader)` | Check all cached templates for missing includes/extends |
+| `renderOwned(a, source, ctx, loader, opts)` | Render returning a `RenderResult` |
+| `renderTemplateOwned(a, name, ctx, loader, opts)` | Render cached returning a `RenderResult` |
 
 ### Options
 
@@ -117,7 +121,8 @@ defer allocator.free(result);
 ### RenderResult (owned output)
 
 ```zig
-const result = try engine.renderOwned(allocator, source, &ctx, &resolver, .{});
+var resolver: toupee.Resolver = .{};
+const result = try engine.renderOwned(allocator, source, &ctx, resolver.loader(), .{});
 defer result.deinit();
 // result.output is the rendered string
 ```
@@ -146,11 +151,11 @@ defer result.deinit();
 Isolated includes receive only explicitly passed data, preventing accidental data leakage:
 
 ```html
-<!-- Card receives only post.* from parent context -->
-<t-include template="card.html" isolated context="post" author="QuiteClose" />
+<!-- Style card receives only style.* from parent context -->
+<t-include template="style-card.html" isolated context="style" author="QuiteClose" />
 
 <!-- Renamed paths to avoid collision -->
-<t-include template="profile.html" isolated context="post.author as writer, comment.author as reviewer" />
+<t-include template="profile.html" isolated context="style.client as writer, review.client as reviewer" />
 
 <!-- Fully isolated: only attrs and slots, no context -->
 <t-include template="badge.html" isolated label="New" />
@@ -161,14 +166,14 @@ The `context` attribute is a comma-separated list of data paths. Each entry is e
 ### Attribute bindings
 
 ```html
-<a t-var:href="url">link</a>        <!-- binds variable to HTML attribute -->
+<a t-var:href="style.url">view</a>   <!-- binds variable to HTML attribute -->
 <div t-attr:class="variant">        <!-- binds include attribute to HTML attribute -->
 ```
 
 ### Loop metadata (via `as` keyword)
 
 ```html
-<t-for post in posts as loop>
+<t-for style in styles as loop>
   <t-var name="loop.index" />   <!-- 0-based -->
   <t-var name="loop.number" />  <!-- 1-based -->
   <t-var name="loop.length" />  <!-- total count -->
@@ -202,7 +207,13 @@ Custom transforms registered via `Engine.registerTransform()`. Signature: `*cons
 
 `Value` is a tagged union: `string`, `boolean`, `integer`, `list`, `map`, `nil`. Variables resolve to `Value` via dot-path splitting on `.`.
 
-`Resolver` maps template names to source strings for `<t-include>` and `<t-extend>`.
+`Loader` is a runtime-polymorphic interface (fat-pointer pattern) for template source resolution. Three implementations:
+
+- `Resolver.loader()` -- wraps the in-memory `Resolver` map (zero-copy)
+- `FileSystemLoader` -- reads templates from a base directory on the filesystem
+- `ChainLoader` -- tries multiple loaders in order, returns the first match
+
+`Resolver` remains available for in-memory template storage and is the simplest way to get started.
 
 ### Existence semantics
 
@@ -226,8 +237,8 @@ Error detail is populated by both the Parser (for `MalformedElement`, `Duplicate
 
 `Engine.validate()` walks all cached templates and reports problems before serving traffic:
 
-- Missing `<t-include>` targets (not in cache or resolver)
-- Missing `<t-extend>` targets (not in cache or resolver)
+- Missing `<t-include>` targets (not in cache or loader)
+- Missing `<t-extend>` targets (not in cache or loader)
 
 Returns `[]const Diagnostic` with template name, kind (err/warning), and message.
 
@@ -261,7 +272,7 @@ zig build bench   # benchmarks (ReleaseFast)
 zig build         # library + CLI stub
 ```
 
-### Benchmark reference (ReleaseFast, 10-post template)
+### Benchmark reference (ReleaseFast, 10-style template)
 
 | Operation | Time |
 | --- | --- |
@@ -307,7 +318,7 @@ The website repo (`quiteclose.github.io/`) contains an earlier prototype of the 
 - **No macros.** `<t-include>` with attributes and slots is the composition mechanism.
 - **Scope isolation.** `<t-include isolated context="...">` provides explicit data passing for safe component composition. The `context` attribute uses `as` for renaming, consistent with `<t-for ... as alias>`.
 - **Two-phase threading model.** Setup phase (mutable) then serve phase (immutable, concurrent). No locking needed because the Engine is immutable during rendering.
-- **Writer API wraps render.** Writer methods buffer the full output then write, rather than streaming during rendering. This keeps the rendering pipeline simple. Internal streaming is a future optimization only if profiling shows the wrapper is a bottleneck.
+- **Writer API streams top-level nodes.** `renderToWriter()` iterates top-level nodes and writes each directly: text nodes go straight to the writer without allocation, complex nodes are rendered individually and flushed. Nested rendering (includes, slots, let bindings) still buffers internally. This avoids duplicating the `renderNodes` switch logic while reducing peak memory for large templates.
 - **`js_escape` transform.** For safely embedding values in JavaScript string literals, common in HTMX patterns.
 - **No browser support.** Toupee is a server-side tool.
 - **No async.** Rendering has no async data sources.

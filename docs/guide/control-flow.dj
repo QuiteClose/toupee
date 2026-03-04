@@ -7,8 +7,8 @@ Toupee provides conditionals and loops for dynamic template content.
 Render content when a variable exists:
 
 ```html
-<t-if var="user">
-<p>Welcome, <t-var name="user.name" /></p>
+<t-if var="client">
+<p>Welcome, <t-var name="client.name" /></p>
 </t-if>
 ```
 
@@ -17,7 +17,7 @@ The condition checks for _existence_, not truthiness. A variable set to an empty
 ### Equality checks
 
 ```html
-<t-if var="page.type" equals="post">
+<t-if var="page.type" equals="style">
 <article>...</article>
 </t-if>
 ```
@@ -26,7 +26,7 @@ The condition checks for _existence_, not truthiness. A variable set to an empty
 
 ```html
 <t-if var="status" not-equals="draft">
-<p>Published</p>
+<p>Available</p>
 </t-if>
 ```
 
@@ -44,9 +44,9 @@ A missing variable satisfies `not-equals` (it doesn't equal anything).
 
 ```html
 <t-if var="text" contains="world">found</t-if>
-<t-if var="path" starts-with="/blog">blog section</t-if>
+<t-if var="path" starts-with="/styles">styles section</t-if>
 <t-if var="file" ends-with=".html">HTML file</t-if>
-<t-if var="path" matches="/blog/*">blog post</t-if>
+<t-if var="path" matches="/styles/*">style page</t-if>
 ```
 
 `matches` supports simple glob patterns: `*` matches any sequence of characters, `?` matches exactly one character.
@@ -54,10 +54,10 @@ A missing variable satisfies `not-equals` (it doesn't equal anything).
 ### `<t-else>` and `<t-elif>`
 
 ```html
-<t-if var="role" equals="admin">
-<p>Admin panel</p>
-<t-elif var="role" equals="editor" />
-<p>Editor view</p>
+<t-if var="role" equals="stylist">
+<p>Stylist panel</p>
+<t-elif var="role" equals="apprentice" />
+<p>Apprentice view</p>
 <t-else />
 <p>Read-only</p>
 </t-if>
@@ -85,8 +85,8 @@ In extended templates, check for slots:
 Iterate over a list:
 
 ```html
-<t-for post in posts>
-<article><h2><t-var name="post.title" /></h2></article>
+<t-for style in styles>
+<article><h2><t-var name="style.name" /></h2></article>
 </t-for>
 ```
 
@@ -97,8 +97,8 @@ The loop variable (`post`) is scoped to the loop body. Parent variables remain a
 Use the `as` keyword to access loop metadata:
 
 ```html
-<t-for post in posts as loop>
-<p>#<t-var name="loop.number" />: <t-var name="post.title" /></p>
+<t-for style in styles as loop>
+<p>#<t-var name="loop.number" />: <t-var name="style.name" /></p>
 </t-for>
 ```
 
@@ -115,9 +115,9 @@ Available metadata:
 `loop.first` and `loop.last` use existence semantics -- they are only present on the first/last iteration respectively. Use `<t-if var="loop.first">` to check:
 
 ```html
-<t-for item in items as loop>
-<t-if var="loop.first"><h2>Items:</h2></t-if>
-<p><t-var name="item.name" /></p>
+<t-for style in styles as loop>
+<t-if var="loop.first"><h2>Styles:</h2></t-if>
+<p><t-var name="style.name" /></p>
 <t-if var="loop.last"><hr /></t-if>
 </t-for>
 ```
@@ -125,8 +125,8 @@ Available metadata:
 ### Sorting
 
 ```html
-<t-for post in posts sort="date" order="desc">
-<t-var name="post.title" />
+<t-for style in styles sort="date" order="desc">
+<t-var name="style.name" />
 </t-for>
 ```
 
@@ -135,8 +135,8 @@ Available metadata:
 ### Limit and offset
 
 ```html
-<t-for post in posts limit="5" offset="2">
-<t-var name="post.title" />
+<t-for style in styles limit="5" offset="2">
+<t-var name="style.name" />
 </t-for>
 ```
 
@@ -147,10 +147,10 @@ Available metadata:
 Render fallback content when the collection is empty or missing:
 
 ```html
-<t-for post in posts>
-<article><t-var name="post.title" /></article>
+<t-for style in styles>
+<article><t-var name="style.name" /></article>
 <t-else />
-<p>No posts yet.</p>
+<p>No styles yet.</p>
 </t-for>
 ```
 
@@ -159,8 +159,8 @@ The `<t-else />` separator works the same way as in `<t-if>`. The else body is r
 ### All modifiers combined
 
 ```html
-<t-for post in posts sort="date" order="desc" offset="1" limit="3" as loop>
-<t-var name="loop.number" />: <t-var name="post.title" />
+<t-for style in styles sort="date" order="desc" offset="1" limit="3" as loop>
+<t-var name="loop.number" />: <t-var name="style.name" />
 </t-for>
 ```
 
@@ -169,8 +169,8 @@ The `<t-else />` separator works the same way as in `<t-if>`. The else body is r
 Capture rendered content into a variable:
 
 ```html
-<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let>
-<a href="/<t-var name="slug" />/"><t-var name="page.title" /></a>
+<t-let name="slug" transform="slugify"><t-var name="style.name" /></t-let>
+<a href="/<t-var name="slug" />/"><t-var name="style.name" /></a>
 ```
 
 The body is rendered as template content, and the result is stored as a new variable. Transforms can be applied to the captured content.

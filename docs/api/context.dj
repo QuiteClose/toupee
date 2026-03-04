@@ -11,11 +11,11 @@ var ctx: toupee.Context = .{};
 ### Adding data
 
 ```zig
-try ctx.putData(allocator, "title", .{ .string = "Hello" });
+try ctx.putData(allocator, "title", .{ .string = "Welcome to the salon" });
 
-var site: toupee.Value.Map = .{};
-try site.put(allocator, "name", .{ .string = "My Site" });
-try ctx.putData(allocator, "site", .{ .map = site });
+var salon: toupee.Value.Map = .{};
+try salon.put(allocator, "name", .{ .string = "Strand & Co" });
+try ctx.putData(allocator, "salon", .{ .map = salon });
 ```
 
 ### Adding attributes
@@ -23,7 +23,7 @@ try ctx.putData(allocator, "site", .{ .map = site });
 Attributes are string key-value pairs used by `<t-attr>` in included templates:
 
 ```zig
-try ctx.putAttr(allocator, "variant", "primary");
+try ctx.putAttr(allocator, "variant", "signature");
 ```
 
 ### Adding slots
@@ -37,8 +37,8 @@ try ctx.putSlot(allocator, "header", "<h1>Title</h1>");
 ### Resolving values
 
 ```zig
-const val = ctx.resolve("site.name"); // ?Value
-const str = ctx.resolveString("site.name"); // ?[]const u8
+const val = ctx.resolve("salon.name"); // ?Value
+const str = ctx.resolveString("salon.name"); // ?[]const u8
 ```
 
 ### Error detail
@@ -47,9 +47,10 @@ Attach an `ErrorDetail` to capture rich error information:
 
 ```zig
 var err_detail: toupee.ErrorDetail = .{};
+var resolver: toupee.Resolver = .{};
 ctx.err_detail = &err_detail;
 
-const result = engine.render(allocator, source, &ctx, &resolver, .{});
+const result = engine.render(allocator, source, &ctx, resolver.loader(), .{});
 if (result) |output| {
     // success
 } else |err| {
@@ -85,7 +86,7 @@ Only string values are output by `<t-var>` and `<t-raw>`. Other types are used f
 
 ```zig
 var m: Value.Map = .{};
-try m.put(allocator, "title", .{ .string = "Page" });
+try m.put(allocator, "title", .{ .string = "Style Guide" });
 try m.put(allocator, "draft", .{ .boolean = true });
 const v: Value = .{ .map = m };
 ```
@@ -94,8 +95,8 @@ const v: Value = .{ .map = m };
 
 ```zig
 const items = try allocator.alloc(Value, 2);
-items[0] = .{ .string = "first" };
-items[1] = .{ .string = "second" };
+items[0] = .{ .string = "Pomade" };
+items[1] = .{ .string = "Mousse" };
 const v: Value = .{ .list = items };
 ```
 
@@ -105,21 +106,62 @@ const v: Value = .{ .list = items };
 
 ```zig
 const root: Value = .{ .map = data };
-if (root.resolve("site.title")) |val| {
+if (root.resolve("salon.name")) |val| {
     if (val.asString()) |s| {
         // s is the string value
     }
 }
 ```
 
+## Loader
+
+`Loader` is the abstract interface for template source lookup. All render functions and `validate()` accept a `Loader`. Implementations: `Resolver.loader()`, `FileSystemLoader`, `ChainLoader`.
+
+```zig
+// Loader has one method: getSource(allocator, name) -> ?[]const u8
+const source = try loader.getSource(allocator, "base.html");
+defer if (source) |s| allocator.free(s);
+```
+
 ## Resolver
 
-The `Resolver` maps template names to their source content:
+The `Resolver` maps template names to their source content. It is one implementation of the Loader interface; call `resolver.loader()` to obtain a Loader to pass to render functions.
 
 ```zig
 var resolver: toupee.Resolver = .{};
 try resolver.put(allocator, "base.html", base_source);
 try resolver.put(allocator, "nav.html", nav_source);
+
+// Pass resolver.loader() to render and validate
+const output = try engine.render(allocator, source, &ctx, resolver.loader(), .{});
 ```
 
-Templates referenced by `<t-extend>` and `<t-include>` are looked up in the resolver.
+Templates referenced by `<t-extend>` and `<t-include>` are looked up via the loader.
+
+## FileSystemLoader
+
+Loads template sources from the filesystem relative to a base directory. Returns null for missing or unreadable files.
+
+```zig
+var fsl = toupee.FileSystemLoader{ .base_path = "templates" };
+const loader = fsl.loader();
+const output = try engine.renderTemplate(allocator, "page.html", &ctx, loader, .{});
+```
+
+Memory for loaded content is owned by the allocator passed to `getSource`; the caller must free returned strings.
+
+## ChainLoader
+
+Tries multiple loaders in order, returning the first match. Useful for layering an in-memory override map on top of a filesystem loader.
+
+```zig
+var resolver: toupee.Resolver = .{};
+try resolver.put(allocator, "override.html", custom_source);
+var fsl = toupee.FileSystemLoader{ .base_path = "templates" };
+
+var chain = toupee.ChainLoader{
+    .loaders = &.{ resolver.loader(), fsl.loader() },
+};
+const loader = chain.loader();
+const output = try engine.renderTemplate(allocator, "page.html", &ctx, loader, .{});
+```

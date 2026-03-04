@@ -9,7 +9,7 @@ Extend a parent template by filling its slots:
 ```html
 {# page.html #}
 <t-extend template="base.html">
-<t-define name="title">My Page</t-define>
+<t-define name="title">Style Guide</t-define>
 <t-define name="">
 <p>Page content goes here</p>
 </t-define>
@@ -63,7 +63,7 @@ The anonymous slot is filled with `name=""`. Each slot name can only be defined 
 Include a template as a component:
 
 ```html
-<t-include template="button.html" label="Click Me" variant="primary" />
+<t-include template="button.html" label="Book Now" variant="signature" />
 ```
 
 The included template accesses attributes with `<t-attr>`:
@@ -78,15 +78,15 @@ The included template accesses attributes with `<t-attr>`:
 Include with body content uses slots:
 
 ```html
-<t-include template="card.html">
-<t-define name="title"><h2>Card Title</h2></t-define>
-<p>Card body content</p>
+<t-include template="style-card.html">
+<t-define name="title"><h2>The Marcel Wave</h2></t-define>
+<p>Layered waves with soft texture.</p>
 </t-include>
 ```
 
 ```html
-{# card.html #}
-<div class="card">
+{# style-card.html #}
+<div class="style-card">
 <t-slot name="title" />
 <t-slot />
 </div>

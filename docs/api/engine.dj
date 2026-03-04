@@ -16,7 +16,7 @@ defer engine.deinit();
 ## Rendering raw source
 
 ```zig
-const output = try engine.render(allocator, template_source, &ctx, &resolver, .{});
+const output = try engine.render(allocator, template_source, &ctx, resolver.loader(), .{});
 defer allocator.free(output);
 ```
 
@@ -29,10 +29,10 @@ Parse a template once and render it multiple times:
 ```zig
 try engine.addTemplate("page.html", template_source);
 
-const output1 = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+const output1 = try engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});
 defer allocator.free(output1);
 
-const output2 = try engine.renderTemplate(allocator, "page.html", &ctx2, &resolver, .{});
+const output2 = try engine.renderTemplate(allocator, "page.html", &ctx2, resolver.loader(), .{});
 defer allocator.free(output2);
 ```
 
@@ -45,7 +45,7 @@ defer allocator.free(output2);
 For convenience, `renderOwned` and `renderTemplateOwned` return a `RenderResult` struct that owns its memory:
 
 ```zig
-const result = try engine.renderOwned(allocator, source, &ctx, &resolver, .{});
+const result = try engine.renderOwned(allocator, source, &ctx, resolver.loader(), .{});
 defer result.deinit();
 // result.output contains the rendered string
 ```
@@ -55,7 +55,7 @@ defer result.deinit();
 `renderFormatted` renders and then reformats the HTML with consistent 2-space indentation:
 
 ```zig
-const output = try engine.renderFormatted(allocator, source, &ctx, &resolver, .{});
+const output = try engine.renderFormatted(allocator, source, &ctx, resolver.loader(), .{});
 defer allocator.free(output);
 ```
 
@@ -112,7 +112,7 @@ When using the `Engine`, `template_name`, `template_source`, and `registry` are 
 With `strict = true` (the default), referencing a variable that doesn't exist and has no default body or `default` transform causes `UndefinedVariable`. With `strict = false`, missing variables silently output an empty string.
 
 ```zig
-const result = try engine.render(allocator, template, &ctx, &resolver, .{
+const result = try engine.render(allocator, template, &ctx, resolver.loader(), .{
     .strict = false,
 });
 ```

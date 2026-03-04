@@ -26,7 +26,7 @@ A Toupee template is plain HTML with `t-` elements:
 
 ```html
 <h1><t-var name="title" /></h1>
-<p>Welcome to <t-var name="site.name" /></p>
+<p>Welcome to <t-var name="salon.name" /></p>
 ```
 
 Render it from Zig:
@@ -38,18 +38,21 @@ var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "title", .{ .string = "Home" });
+try ctx.putData(allocator, "title", .{ .string = "Strand & Co" });
+var salon: toupee.Value.Map = .{};
+try salon.put(allocator, "name", .{ .string = "Strand & Co" });
+try ctx.putData(allocator, "salon", .{ .map = salon });
 
 var resolver: toupee.Resolver = .{};
-const output = try engine.render(allocator, template_source, &ctx, &resolver, .{});
+const output = try engine.render(allocator, template_source, &ctx, resolver.loader(), .{});
 defer allocator.free(output);
 ```
 
 Output:
 
 ```html
-<h1>Home</h1>
-<p>Welcome to </p>
+<h1>Strand & Co</h1>
+<p>Welcome to Strand & Co</p>
 ```
 
 ## Template elements

@@ -18,7 +18,7 @@ pub const RenderError = error{
 | Error | Cause |
 |-------|-------|
 | `MalformedElement` | Invalid template syntax (unclosed tags, missing attributes) |
-| `TemplateNotFound` | `<t-extend>` or `<t-include>` references a template not in the resolver |
+| `TemplateNotFound` | `<t-extend>` or `<t-include>` references a template not found in cache or loader |
 | `CircularReference` | Template extend chain forms a cycle |
 | `DuplicateSlotDefinition` | Two `<t-define>` blocks with the same name |
 | `UndefinedVariable` | `<t-var>` or `<t-raw>` references a missing variable with no default |
@@ -92,7 +92,7 @@ for (err_detail.includeStack()) |entry| {
 ## Handling strategy
 
 ```zig
-const result = engine.render(allocator, source, &ctx, &resolver, .{});
+const result = engine.render(allocator, source, &ctx, resolver.loader(), .{});
 if (result) |output| {
     defer allocator.free(output);
     // use output

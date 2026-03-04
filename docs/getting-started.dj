@@ -38,15 +38,15 @@ pub fn main() !void {
 
     var ctx: toupee.Context = .{};
     defer ctx.deinit(a);
-    try ctx.putData(a, "title", .{ .string = "Hello World" });
+    try ctx.putData(a, "title", .{ .string = "Welcome to the salon" });
 
     var resolver: toupee.Resolver = .{};
 
-    const html = try toupee.render(a, template, &ctx, &resolver, .{});
+    const html = try toupee.render(a, template, &ctx, resolver.loader(), .{});
     defer a.free(html);
 
     std.debug.print("{s}\n", .{html});
-    // Output: <h1>Hello World</h1>
+    // Output: <h1>Welcome to the salon</h1>
 }
 ```
 
@@ -57,7 +57,7 @@ Most sites use a base layout that pages extend:
 ```html
 <!-- base.html -->
 <html>
-<head><title><t-var name="site.title" /></title></head>
+<head><title><t-var name="salon.name" /></title></head>
 <body>
   <t-slot />
 </body>
@@ -68,12 +68,12 @@ Most sites use a base layout that pages extend:
 <!-- page template -->
 <t-extend template="base.html">
 <t-define name="">
-  <h1><t-var name="page.title" /></h1>
-  <p>Page content here.</p>
+  <h1><t-var name="style.name" /></h1>
+  <p>Style description here.</p>
 </t-define>
 ```
 
-Register templates in the resolver by name:
+Register templates in the resolver by name (Resolver implements the Loader interface; pass `resolver.loader()` to render functions):
 
 ```zig
 var resolver: toupee.Resolver = .{};
@@ -85,8 +85,8 @@ try resolver.put(a, "base.html", base_html);
 Reusable components are included with `<t-include>`:
 
 ```html
-<!-- card.html -->
-<div class="card">
+<!-- style-card.html -->
+<div class="style-card">
   <h2><t-attr name="title" /></h2>
   <t-slot />
 </div>
@@ -94,8 +94,8 @@ Reusable components are included with `<t-include>`:
 
 ```html
 <!-- usage -->
-<t-include template="card.html" title="My Card">
-  <p>Card body content</p>
+<t-include template="style-card.html" title="The Marcel Wave">
+  <p>Layered waves with soft texture.</p>
 </t-include>
 ```
 
@@ -106,38 +106,38 @@ Attributes on the include tag (except `template`) are passed to the included tem
 Data is structured using `Value` types -- strings, booleans, integers, lists, and maps:
 
 ```zig
-var posts = std.ArrayList(toupee.Value).init(a);
-defer posts.deinit();
-try posts.append(.{ .map = blk: {
+var styles = std.ArrayList(toupee.Value).init(a);
+defer styles.deinit();
+try styles.append(.{ .map = blk: {
     var m: toupee.Value.Map = .{};
-    try m.put(a, "title", .{ .string = "First Post" });
+    try m.put(a, "name", .{ .string = "French Crop" });
     break :blk m;
 } });
-try posts.append(.{ .map = blk: {
+try styles.append(.{ .map = blk: {
     var m: toupee.Value.Map = .{};
-    try m.put(a, "title", .{ .string = "Second Post" });
+    try m.put(a, "name", .{ .string = "Pompadour" });
     break :blk m;
 } });
-try ctx.putData(a, "posts", .{ .list = posts.items });
+try ctx.putData(a, "styles", .{ .list = styles.items });
 ```
 
 ```html
-<t-for post in posts sort="title">
-  <article><t-var name="post.title" /></article>
+<t-for style in styles sort="name">
+  <article><t-var name="style.name" /></article>
 </t-for>
 ```
 
-Variables use dot-path resolution: `post.title` resolves through the data hierarchy (post -> title).
+Variables use dot-path resolution: `style.name` resolves through the data hierarchy (style -> name).
 
 == Conditionals
 
 Show or hide content based on data:
 
 ```html
-<t-if var="show_nav">
-  <nav>Navigation here</nav>
+<t-if var="show_menu">
+  <nav>Menu links here</nav>
 <t-else />
-  <p>No navigation</p>
+  <p>No menu</p>
 </t-if>
 ```
 
@@ -160,7 +160,7 @@ Transforms are pipe-chained left to right.
 Use `renderFormatted` for indented HTML output:
 
 ```zig
-const formatted = try toupee.renderFormatted(a, template, &ctx, &resolver, .{});
+const formatted = try toupee.renderFormatted(a, template, &ctx, resolver.loader(), .{});
 defer a.free(formatted);
 ```
 
@@ -175,7 +175,7 @@ var err_detail: toupee.ErrorDetail = .{};
 var ctx: toupee.Context = .{};
 ctx.err_detail = &err_detail;
 
-const result = toupee.render(a, template, &ctx, &resolver, .{}) catch |err| {
+const result = toupee.render(a, template, &ctx, resolver.loader(), .{}) catch |err| {
     std.debug.print("Error at line {d}, col {d}: {s}\n", .{
         err_detail.line, err_detail.column, err_detail.message,
     });

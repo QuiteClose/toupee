@@ -62,7 +62,7 @@ Converts to a URL-friendly slug: lowercase, non-alphanumeric characters replaced
 
 ```
 "Hello World!" → "hello-world"
-"  My Blog Post  " → "my-blog-post"
+"  The Marcel Wave  " → "the-marcel-wave"
 ```
 
 ### `truncate:N`

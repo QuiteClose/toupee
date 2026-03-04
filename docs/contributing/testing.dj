@@ -58,13 +58,13 @@ expected output here
 ```json
 {
   "data": {
-    "title": "Hello",
+    "title": "Welcome to the salon",
     "items": ["a", "b", "c"],
-    "user": {"name": "Alice", "active": true}
+    "client": {"name": "Marcel", "active": true}
   },
   "templates": {
     "header.html": "<header>Header</header>",
-    "card.html": "<div class=\"card\"><t-slot /></div>"
+    "style-card.html": "<div class=\"style-card\"><t-slot /></div>"
   }
 }
 ```

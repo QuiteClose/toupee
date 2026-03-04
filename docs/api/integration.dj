@@ -37,11 +37,11 @@ pub fn main() !void {
 
     const template = "<h1><t-var name=\"title\" /></h1>";
     var ctx: toupee.Context = .{};
-    try ctx.putData(a, "title", .{ .string = "Hello" });
+    try ctx.putData(a, "title", .{ .string = "Welcome to the salon" });
     defer ctx.data.deinit(a);
 
     var resolver: toupee.Resolver = .{};
-    const output = try engine.render(a, template, &ctx, &resolver, .{});
+    const output = try engine.render(a, template, &ctx, resolver.loader(), .{});
     defer a.free(output);
 
     const stdout = std.io.getStdOut().writer();
@@ -71,12 +71,14 @@ try resolver.put(allocator, "page.html", page_source);
 for (pages) |page| {
     var ctx = buildPageContext(allocator, page);
     const output = try engine.renderTemplate(
-        allocator, page.layout, &ctx, &resolver, .{}
+        allocator, page.layout, &ctx, resolver.loader(), .{}
     );
     try writeFile(page.output_path, output);
     allocator.free(output);
 }
 ```
+
+`Resolver` implements the `Loader` interface; pass `resolver.loader()` to render and validate.
 
 ## Memory management
 
@@ -97,7 +99,7 @@ for (pages) |page| {
     const a = arena.allocator();
 
     var ctx = try buildPageContext(a, page);
-    const output = try engine.render(a, template, &ctx, &resolver, .{});
+    const output = try engine.render(a, template, &ctx, resolver.loader(), .{});
     try writeFile(page.path, output);
     // arena.deinit() cleans up everything
 }
@@ -113,16 +115,16 @@ test "home page renders correctly" {
     defer engine.deinit();
 
     var ctx: toupee.Context = .{};
-    try ctx.putData(std.testing.allocator, "title", .{ .string = "Home" });
+    try ctx.putData(std.testing.allocator, "title", .{ .string = "Strand & Co" });
     defer ctx.data.deinit(std.testing.allocator);
 
     var resolver: toupee.Resolver = .{};
     const result = try engine.render(
         std.testing.allocator, "<h1><t-var name=\"title\" /></h1>",
-        &ctx, &resolver, .{}
+        &ctx, resolver.loader(), .{}
     );
     defer std.testing.allocator.free(result);
 
-    try std.testing.expectEqualStrings("<h1>Home</h1>", result);
+    try std.testing.expectEqualStrings("<h1>Strand & Co</h1>", result);
 }
 ```

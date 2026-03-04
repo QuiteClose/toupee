@@ -10,7 +10,7 @@ Inherit from a parent template. Must be the first non-whitespace content in a te
 
 ```
 <t-extend template="base.html">
-<t-define name="title">My Page</t-define>
+<t-define name="title">Style Guide</t-define>
 <t-define name="">Body content</t-define>
 ```
 
@@ -46,12 +46,12 @@ Self-closing slots render nothing if unfilled. Block slots render their default 
 Insert a variable value with HTML escaping.
 
 ```
-<t-var name="page.title" />
+<t-var name="style.name" />
 <t-var name="missing">fallback content</t-var>
 <t-var name="title" transform="upper" />
 ```
 
-Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use dot-path resolution --- `page.title` resolves through the data hierarchy (page -> title).
+Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use dot-path resolution --- `style.name` resolves through the data hierarchy (style -> name).
 
 === `<t-raw>`
 
@@ -69,8 +69,8 @@ Same semantics as `<t-var>` except output is not escaped. Use for pre-rendered H
 Capture rendered content into a variable for later use.
 
 ```
-<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let>
-<a href="/<t-var name="slug" />"><t-var name="page.title" /></a>
+<t-let name="slug" transform="slugify"><t-var name="style.name" /></t-let>
+<a href="/<t-var name="slug" />"><t-var name="style.name" /></a>
 ```
 
 The body is rendered, optionally transformed, and stored in the variable. The variable is available for the remainder of the current template scope.
@@ -82,7 +82,7 @@ The body is rendered, optionally transformed, and stored in the variable. The va
 Bind a context variable to an HTML attribute. If the variable is missing, the attribute is omitted entirely.
 
 ```
-<a t-var:href="post.url" t-var:title="post.label">link</a>
+<a t-var:href="style.url" t-var:title="style.label">link</a>
 ```
 
 Values are HTML-escaped.
@@ -104,9 +104,9 @@ Include another template with attribute passing and optional body.
 ```
 <t-include template="nav.html" class="site-nav" />
 
-<t-include template="card.html" variant="primary">
-  <t-define name="title"><h2>Card Title</h2></t-define>
-  <p>Card body (anonymous slot)</p>
+<t-include template="style-card.html" variant="signature">
+  <t-define name="title"><h2>The Marcel Wave</h2></t-define>
+  <p>Layered waves with soft texture (anonymous slot)</p>
 </t-include>
 ```
 
@@ -134,7 +134,7 @@ Conditional rendering based on variable, attribute, or slot existence/value.
 <t-if var="x" not-equals="hello">not equal</t-if>
 <t-if var="x" not-exists>truly missing (empty string counts as existing)</t-if>
 <t-if var="x" contains="needle">substring match</t-if>
-<t-if var="x" starts-with="/blog">prefix match</t-if>
+<t-if var="x" starts-with="/styles">prefix match</t-if>
 <t-if var="x" ends-with=".html">suffix match</t-if>
 <t-if var="x" matches="*.html">glob pattern match (* and ?)</t-if>
 <t-if attr="variant">has variant attribute</t-if>
@@ -161,8 +161,8 @@ Conditional branches. Must appear inside a `<t-if>` block. Self-closing separato
 Iterate over a collection.
 
 ```
-<t-for post in posts sort="date" order="desc" limit="5" offset="1" as loop>
-  <h2><t-var name="post.title" /></h2>
+<t-for style in styles sort="date" order="desc" limit="5" offset="1" as loop>
+  <h2><t-var name="style.name" /></h2>
   <span>#<t-var name="loop.number" /></span>
 </t-for>
 ```
@@ -192,10 +192,10 @@ Empty or missing collections render nothing (no error).
 `<t-else />` inside `<t-for>` provides fallback content when the collection is empty or missing:
 
 ```
-<t-for post in posts>
-  <article><t-var name="post.title" /></article>
+<t-for style in styles>
+  <article><t-var name="style.name" /></article>
 <t-else />
-  <p>No posts yet.</p>
+  <p>No styles yet.</p>
 </t-for>
 ```
 

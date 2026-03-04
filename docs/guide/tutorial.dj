@@ -23,7 +23,7 @@ pub fn main() !void {
 
     // Validate before rendering
     var resolver: toupee.Resolver = .{};
-    const diags = try engine.validate(a, &resolver);
+    const diags = try engine.validate(a, resolver.loader());
     defer a.free(diags);
     if (diags.len > 0) {
         for (diags) |d| std.debug.print("{s}: {s}\n", .{ d.template, d.message });
@@ -32,10 +32,10 @@ pub fn main() !void {
 
     // Render phase: build pages
     var ctx: toupee.Context = .{};
-    try ctx.putData(a, "title", .{ .string = "Home" });
+    try ctx.putData(a, "title", .{ .string = "Strand & Co" });
     defer ctx.data.deinit(a);
 
-    const html = try engine.renderTemplate(a, "page.html", &ctx, &resolver, .{});
+    const html = try engine.renderTemplate(a, "page.html", &ctx, resolver.loader(), .{});
     defer a.free(html);
 
     try std.fs.cwd().writeFile(.{ .sub_path = "out/index.html", .data = html });
@@ -57,16 +57,16 @@ try engine.addTemplate("base.html", base_source);
 try engine.addTemplate("page.html", page_source);
 
 // Fragment templates for HTMX responses
-try engine.addTemplate("user-status.html",
+try engine.addTemplate("client-status.html",
     \\<div id="status"><t-var name="name" /> is <t-var name="status" /></div>
 );
-try engine.addTemplate("todo-item.html",
-    \\<li id="todo-<t-var name="id" />"><t-var name="text" /></li>
+try engine.addTemplate("appointment-item.html",
+    \\<li id="appointment-<t-var name="id" />"><t-var name="text" /></li>
 );
 
 // Validate all templates before serving traffic
 var resolver: toupee.Resolver = .{};
-const diags = try engine.validate(allocator, &resolver);
+const diags = try engine.validate(allocator, resolver.loader());
 if (diags.len > 0) return error.InvalidTemplates;
 allocator.free(diags);
 ```
@@ -77,12 +77,12 @@ allocator.free(diags);
 // Per-request (serve phase -- thread-safe, uses *const Engine)
 fn handleStatus(engine: *const toupee.Engine, allocator: Allocator) ![]const u8 {
     var ctx: toupee.Context = .{};
-    try ctx.putData(allocator, "name", .{ .string = "Alice" });
-    try ctx.putData(allocator, "status", .{ .string = "online" });
+    try ctx.putData(allocator, "name", .{ .string = "Marcel" });
+    try ctx.putData(allocator, "status", .{ .string = "seated" });
     defer ctx.data.deinit(allocator);
 
     var resolver: toupee.Resolver = .{};
-    return engine.renderTemplate(allocator, "user-status.html", &ctx, &resolver, .{});
+    return engine.renderTemplate(allocator, "client-status.html", &ctx, resolver.loader(), .{});
 }
 ```
 
@@ -93,12 +93,12 @@ For streaming directly to an HTTP response or file, use the writer methods. Thes
 ```zig
 // Write directly to an HTTP response writer
 try engine.renderTemplateToWriter(
-    allocator, "user-status.html", &ctx, &resolver, .{}, response.writer(),
+    allocator, "client-status.html", &ctx, resolver.loader(), .{}, response.writer(),
 );
 
 // Write formatted (pretty-printed) output
 try engine.renderFormattedToWriter(
-    allocator, source, &ctx, &resolver, .{}, file.writer(),
+    allocator, source, &ctx, resolver.loader(), .{}, file.writer(),
 );
 ```
 
@@ -111,15 +111,15 @@ Isolated includes receive only the data you explicitly pass, preventing accident
 ### Basic isolation
 
 ```html
-<!-- card.html -->
+<!-- style-card.html -->
 <article>
-  <h2><t-var name="post.title" /></h2>
+  <h2><t-var name="style.name" /></h2>
   <p>by <t-attr name="author" /></p>
 </article>
 
 <!-- page.html -->
-<t-for post in posts>
-  <t-include template="card.html" isolated context="post" author="QuiteClose" />
+<t-for style in styles>
+  <t-include template="style-card.html" isolated context="style" author="QuiteClose" />
 </t-for>
 ```
 
@@ -131,7 +131,7 @@ When including data from multiple paths that would collide on the same key, use 
 
 ```html
 <t-include template="comparison.html" isolated
-  context="post.author as writer, comment.author as reviewer" />
+  context="style.client as writer, review.client as reviewer" />
 ```
 
 The included template accesses `writer.name` and `reviewer.name` instead of both being `author`.
@@ -172,7 +172,7 @@ var err_detail: toupee.ErrorDetail = .{};
 var ctx: toupee.Context = .{};
 ctx.err_detail = &err_detail;
 
-const result = engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+const result = engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});
 if (result) |html| {
     // success
     allocator.free(html);
@@ -189,7 +189,7 @@ if (result) |html| {
 Call `validate()` after loading all templates to catch problems before serving traffic:
 
 ```zig
-const diags = try engine.validate(allocator, &resolver);
+const diags = try engine.validate(allocator, resolver.loader());
 defer allocator.free(diags);
 
 for (diags) |d| {
@@ -202,5 +202,5 @@ if (diags.len > 0) return error.InvalidTemplates;
 ```
 
 Validation checks for:
-- Missing `<t-include>` targets (not found in cache or resolver)
-- Missing `<t-extend>` targets (not found in cache or resolver)
+- Missing `<t-include>` targets (not found in cache or loader)
+- Missing `<t-extend>` targets (not found in cache or loader)

@@ -35,11 +35,11 @@ Use `<t-raw>` when the variable contains trusted HTML that should be rendered as
 Access nested data with dot-separated paths:
 
 ```html
-<t-var name="site.title" />
+<t-var name="salon.name" />
 <t-var name="page.meta.description" />
 ```
 
-With `{"site": {"title": "My Blog"}, "page": {"meta": {"description": "About"}}}`, these resolve to `My Blog` and `About`.
+With `{"salon": {"name": "Strand & Co"}, "page": {"meta": {"description": "About"}}}`, these resolve to `Strand & Co` and `About`.
 
 ## Default values
 

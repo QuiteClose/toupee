@@ -2,18 +2,18 @@
 
 Practical recipes for building templates with Toupee.
 
-## Blog layout with inheritance
+## Salon layout with inheritance
 
 A common pattern: base template with header/footer, page template with content area, individual pages.
 
 ```html
 {# base.html #}
 <html>
-<head><title><t-slot name="title" /> - <t-var name="site.title" /></title></head>
+<head><title><t-slot name="title" /> - <t-var name="salon.name" /></title></head>
 <body>
-<header><t-var name="site.name" /></header>
+<header><t-var name="salon.name" /></header>
 <main><t-slot /></main>
-<footer>&copy; <t-var name="site.title" /></footer>
+<footer>&copy; <t-var name="salon.name" /></footer>
 </body>
 </html>
 ```
@@ -24,10 +24,10 @@ A common pattern: base template with header/footer, page template with content a
 <t-define name="title">Home</t-define>
 <t-define name="">
 <h1>Welcome</h1>
-<t-for post in posts>
+<t-for style in styles>
 <article>
-<h2><t-var name="post.title" /></h2>
-<p><t-var name="post.summary" /></p>
+<h2><t-var name="style.name" /></h2>
+<p><t-var name="style.description" /></p>
 </article>
 </t-for>
 </t-define>
@@ -43,23 +43,23 @@ Build a library of components and compose them:
 ```
 
 ```html
-{# card.html #}
-<div class="card">
+{# style-card.html #}
+<div class="style-card">
 <t-slot name="header" />
 <t-slot />
-<div class="tags">
-<t-for tag in tags>
-<t-include template="tag.html" label="tag" />
+<div class="techniques">
+<t-for technique in style.techniques>
+<t-include template="tag.html" label="technique" />
 </t-for>
 </div>
 </div>
 ```
 
-## Conditional navigation highlighting
+## Conditional menu highlighting
 
 ```html
 <nav>
-<t-for link in nav>
+<t-for link in menu>
 <t-if var="link.active">
 <a class="active"><t-var name="link.label" /></a>
 <t-else />
@@ -74,8 +74,8 @@ Build a library of components and compose them:
 Generate a slug from a title and use it in multiple places:
 
 ```html
-<t-let name="slug" transform="slugify"><t-var name="page.title" /></t-let>
-<a href="/<t-var name="slug" />/"><t-var name="page.title" /></a>
+<t-let name="slug" transform="slugify"><t-var name="style.name" /></t-let>
+<a href="/<t-var name="slug" />/"><t-var name="style.name" /></a>
 <link rel="canonical" href="https://example.com/<t-var name="slug" />/" />
 ```
 
@@ -105,11 +105,11 @@ Pages that define the sidebar slot get the sidebar; pages that don't get a full-
 ## Loop with index-based logic
 
 ```html
-<t-for item in items as loop>
+<t-for style in styles as loop>
 <t-if var="loop.index" equals="0">
-<div class="featured"><t-var name="item.title" /></div>
+<div class="featured"><t-var name="style.name" /></div>
 <t-else />
-<div class="regular"><t-var name="item.title" /></div>
+<div class="regular"><t-var name="style.name" /></div>
 </t-if>
 </t-for>
 ```

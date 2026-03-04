@@ -9,17 +9,17 @@ A template engine in Zig for static sites and live servers. Templates are plain 
 ```html
 <t-extend template="base.html">
 <t-define name="content">
-  <h1><t-var name="site.title" /></h1>
-  <t-for post in posts sort="date" order="desc" limit="5" as loop>
+  <h1><t-var name="salon.name" /></h1>
+  <t-for style in styles sort="name" limit="5" as loop>
   <article>
-    <h2><a t-var:href="post.url"><t-var name="post.title" /></a></h2>
-    <p><t-var name="post.summary" transform="truncate:120" /></p>
-    <t-for tag in post.tags>
-    <span class="tag"><t-var name="tag" /></span>
+    <h2><a t-var:href="style.url"><t-var name="style.name" /></a></h2>
+    <p><t-var name="style.description" transform="truncate:120" /></p>
+    <t-for technique in style.techniques>
+    <span class="tag"><t-var name="technique" /></span>
     </t-for>
   </article>
   <t-else />
-  <p>No posts yet.</p>
+  <p>No styles listed yet.</p>
   </t-for>
 </t-define>
 </t-extend>
@@ -32,8 +32,8 @@ That's a real template. Inheritance, nested loops, attribute binding, transforms
 Template:
 
 ```html
-<t-for item in fruits>
-<li><t-var name="item.name" /> (<t-var name="item.color" transform="lower" />)</li>
+<t-for product in products>
+<li><t-var name="product.name" /> (<t-var name="product.hold" transform="lower" />)</li>
 </t-for>
 ```
 
@@ -43,19 +43,20 @@ Zig:
 const toupee = @import("toupee");
 
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "fruits", .{ .list = &.{
-    .{ .map = /* { name: "Apple", color: "RED" } */ },
-    .{ .map = /* { name: "Lime", color: "GREEN" } */ },
+try ctx.putData(allocator, "products", .{ .list = &.{
+    .{ .map = /* { name: "Pomade", hold: "STRONG" } */ },
+    .{ .map = /* { name: "Mousse", hold: "LIGHT" } */ },
 } });
 
-const html = try toupee.render(allocator, template, &ctx, &resolver, .{});
+var resolver: toupee.Resolver = .{};
+const html = try toupee.render(allocator, template, &ctx, resolver.loader(), .{});
 ```
 
 Output:
 
 ```html
-<li>Apple (red)</li>
-<li>Lime (green)</li>
+<li>Pomade (strong)</li>
+<li>Mousse (light)</li>
 ```
 
 ## Why Toupee?
@@ -82,7 +83,8 @@ Output:
 - **Strict mode** -- errors on undefined variables (default on, opt out per render)
 - **Startup validation** -- `Engine.validate()` catches missing templates before serving traffic
 - **Thread-safe rendering** -- immutable Engine for concurrent render calls
-- **Writer API** -- render directly to any `std.io.Writer` (HTTP responses, files)
+- **Writer API** -- render directly to any `std.io.Writer` with true top-level streaming
+- **Loader abstraction** -- `Resolver` (in-memory), `FileSystemLoader`, `ChainLoader` (try loaders in order)
 - **Cache management** -- `removeTemplate()`, `clearTemplates()` for dev-mode hot-reload
 
 ## Quick Start
@@ -99,11 +101,11 @@ try engine.addTemplate("base.html", base_source);
 try engine.addTemplate("page.html", page_source);
 
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "title", .{ .string = "Hello" });
+try ctx.putData(allocator, "title", .{ .string = "The Toupee Room" });
 defer ctx.data.deinit(allocator);
 
 var resolver: toupee.Resolver = .{};
-const html = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+const html = try engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});
 defer allocator.free(html);
 ```
 
@@ -112,28 +114,29 @@ defer allocator.free(html);
 ```zig
 // Setup phase (at server startup)
 var engine = try toupee.Engine.init(allocator);
-try engine.addTemplate("user-status.html",
-    \\<div id="status"><t-var name="name" /> is <t-var name="status" /></div>
+try engine.addTemplate("client-status.html",
+    \\<div id="status"><t-var name="client" /> is <t-var name="status" /></div>
 );
 
 // Validate all templates before serving
 var resolver: toupee.Resolver = .{};
-const diags = try engine.validate(allocator, &resolver);
+const diags = try engine.validate(allocator, resolver.loader());
 defer allocator.free(diags);
 
 // Serve phase (per-request, thread-safe)
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "name", .{ .string = "Alice" });
-try ctx.putData(allocator, "status", .{ .string = "online" });
+try ctx.putData(allocator, "client", .{ .string = "Marcel" });
+try ctx.putData(allocator, "status", .{ .string = "seated" });
 defer ctx.data.deinit(allocator);
 
-try engine.renderTemplateToWriter(allocator, "user-status.html", &ctx, &resolver, .{}, response.writer());
+try engine.renderTemplateToWriter(allocator, "client-status.html", &ctx, resolver.loader(), .{}, response.writer());
 ```
 
 Or skip the Engine for one-shot rendering:
 
 ```zig
-const html = try toupee.render(allocator, source, &ctx, &resolver, .{});
+var resolver: toupee.Resolver = .{};
+const html = try toupee.render(allocator, source, &ctx, resolver.loader(), .{});
 ```
 
 ## Build and Test
