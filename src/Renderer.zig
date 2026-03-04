@@ -11,6 +11,7 @@ const h = @import("html.zig");
 const transform = @import("transform.zig");
 const indent_mod = @import("indent.zig");
 const Parser = @import("Parser.zig");
+const diagnostic = @import("diagnostic.zig");
 
 pub const Options = struct {
     max_depth: usize = 50,
@@ -501,40 +502,13 @@ fn appendValueDebug(a: Allocator, out: *std.ArrayList(u8), value: V.Value) Rende
 // ---- Error helpers ----
 
 
-
-
-fn extractSourceLine(source: []const u8, pos: usize) []const u8 {
-    if (source.len == 0) return "";
-    const clamped = @min(pos, source.len - 1);
-    var start = clamped;
-    while (start > 0 and source[start - 1] != '\n') : (start -= 1) {}
-    var end = clamped;
-    while (end < source.len and source[end] != '\n') : (end += 1) {}
-    return source[start..end];
-}
-
-fn computeCaretLen(source: []const u8, pos: usize) usize {
-    if (pos >= source.len or source[pos] != '<') return 1;
-    var i = pos + 1;
-    while (i < source.len and source[i] != '>' and source[i] != '\n') : (i += 1) {}
-    return if (i < source.len and source[i] == '>') i - pos + 1 else @max(i - pos, 1);
-}
-
 fn setRichError(state: State, ctx: *Context, pos: usize, kind: Ctx.ErrorDetail.Kind, name: []const u8) void {
-    const ed = ctx.err_detail orelse return;
-    const lc = h.computeLineCol(state.template_source, pos);
-    ed.* = .{
-        .kind = kind,
-        .message = name,
-        .source_file = state.template_name,
-        .line = lc.line,
-        .column = lc.column,
-        .source_line = extractSourceLine(state.template_source, pos),
-        .caret_len = computeCaretLen(state.template_source, pos),
-        .include_stack_len = state.include_stack_len,
-        .include_stack_buf = state.include_stack_buf,
-    };
-    if (kind == .undefined_variable) ed.suggestion = findSuggestion(name, ctx);
+    diagnostic.setError(ctx.err_detail, state.template_source, pos, kind, name, state.template_name);
+    if (ctx.err_detail) |ed| {
+        ed.include_stack_len = state.include_stack_len;
+        ed.include_stack_buf = state.include_stack_buf;
+        if (kind == .undefined_variable) ed.suggestion = findSuggestion(name, ctx);
+    }
 }
 
 fn findSuggestion(name: []const u8, ctx: *const Context) []const u8 {
@@ -557,38 +531,13 @@ fn findClosestKey(name: []const u8, map: V.Map) []const u8 {
     var best_dist: usize = 3;
     var it = map.iterator();
     while (it.next()) |entry| {
-        const d = levenshtein(name, entry.key_ptr.*);
+        const d = diagnostic.levenshtein(name, entry.key_ptr.*);
         if (d > 0 and d < best_dist) {
             best_dist = d;
             best = entry.key_ptr.*;
         }
     }
     return best;
-}
-
-/// Stack-allocated Levenshtein distance. Returns std.math.maxInt(usize) when
-/// either string exceeds the row buffer (255 chars). This is only used for
-/// typo suggestions where a threshold of 3 makes long-name comparisons moot.
-fn levenshtein(a_str: []const u8, b_str: []const u8) usize {
-    const max_len = 255;
-    if (a_str.len > max_len or b_str.len > max_len) return std.math.maxInt(usize);
-    if (a_str.len == 0) return b_str.len;
-    if (b_str.len == 0) return a_str.len;
-
-    var row: [max_len + 1]usize = undefined;
-    for (0..b_str.len + 1) |j| row[j] = j;
-
-    for (a_str) |a_ch| {
-        var prev_diag = row[0];
-        row[0] += 1;
-        for (b_str, 0..) |b_ch, j| {
-            const temp = row[j + 1];
-            const cost: usize = if (a_ch == b_ch) 0 else 1;
-            row[j + 1] = @min(@min(row[j + 1] + 1, row[j] + 1), prev_diag + cost);
-            prev_diag = temp;
-        }
-    }
-    return row[b_str.len];
 }
 
 // ---- Tests ----
@@ -727,50 +676,6 @@ test "computeLineCol empty source" {
     const lc = h.computeLineCol("", 0);
     try testing.expectEqual(@as(usize, 1), lc.line);
     try testing.expectEqual(@as(usize, 1), lc.column);
-}
-
-test "extractSourceLine" {
-    const line = extractSourceLine("abc\ndef\nghi", 5);
-    try testing.expectEqualStrings("def", line);
-}
-
-test "extractSourceLine first line" {
-    const line = extractSourceLine("hello", 2);
-    try testing.expectEqualStrings("hello", line);
-}
-
-test "computeCaretLen tag" {
-    const src = "<t-var name=\"x\" />";
-    try testing.expectEqual(@as(usize, 18), computeCaretLen(src, 0));
-}
-
-test "computeCaretLen non-tag" {
-    try testing.expectEqual(@as(usize, 1), computeCaretLen("hello", 2));
-}
-
-test "levenshtein identical" {
-    try testing.expectEqual(@as(usize, 0), levenshtein("abc", "abc"));
-}
-
-test "levenshtein one insert" {
-    try testing.expectEqual(@as(usize, 1), levenshtein("titl", "title"));
-}
-
-test "levenshtein one replace" {
-    try testing.expectEqual(@as(usize, 1), levenshtein("abc", "axc"));
-}
-
-test "levenshtein one delete" {
-    try testing.expectEqual(@as(usize, 1), levenshtein("title", "titl"));
-}
-
-test "levenshtein empty" {
-    try testing.expectEqual(@as(usize, 3), levenshtein("", "abc"));
-    try testing.expectEqual(@as(usize, 3), levenshtein("abc", ""));
-}
-
-test "levenshtein both empty" {
-    try testing.expectEqual(@as(usize, 0), levenshtein("", ""));
 }
 
 test "strict false allows missing variables" {
