@@ -2,7 +2,7 @@
 
 *Seamless HTML templates, zero magic.*
 
-A build-time template engine in Zig. Templates are plain HTML with `<t-*>` elements for inheritance, slots, loops, conditionals, and transforms. No custom delimiters, no embedded language, no runtime. Feed it templates and data, get HTML back.
+A template engine in Zig for static sites and live servers. Templates are plain HTML with `<t-*>` elements for inheritance, slots, loops, conditionals, and transforms. No custom delimiters, no embedded language. Feed it templates and data, get HTML back.
 
 ## A Little Off-the-Top
 
@@ -72,40 +72,62 @@ Output:
 
 - **Template inheritance** -- `<t-extend>` with named `<t-slot>`/`<t-define>` pairs and defaults
 - **Components** -- `<t-include>` with attributes, body slots, and nested defines
+- **Scope isolation** -- `<t-include isolated context="post, site">` passes only named data to components
 - **Variables** -- `<t-var>` (escaped) and `<t-raw>` (unescaped) with dot-path resolution
 - **Attribute binding** -- `<a t-var:href="post.url">` binds variables to HTML attributes
 - **Conditionals** -- `<t-if>` with `equals`, `contains`, `starts-with`, `ends-with`, `matches` (glob)
 - **Loops** -- `<t-for>` with sort, filter, limit/offset, `loop.first`/`loop.last`/`loop.length`, for-else
-- **Transforms** -- `upper`, `slugify`, `truncate:N`, `escape`, `url_encode`, `join`, `split`, and more (pipe-chained)
+- **Transforms** -- `upper`, `slugify`, `truncate:N`, `escape`, `js_escape`, `url_encode`, `join`, `split`, and more (pipe-chained)
 - **Capture** -- `<t-let>` renders content into a scoped variable
 - **Strict mode** -- errors on undefined variables (default on, opt out per render)
+- **Startup validation** -- `Engine.validate()` catches missing templates before serving traffic
+- **Thread-safe rendering** -- immutable Engine for concurrent render calls
+- **Writer API** -- render directly to any `std.io.Writer` (HTTP responses, files)
+- **Cache management** -- `removeTemplate()`, `clearTemplates()` for dev-mode hot-reload
 
 ## Quick Start
+
+### Static site generation
 
 ```zig
 const toupee = @import("toupee");
 
-// Engine caches parsed templates and manages transforms
 var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
-// Pre-parse and cache
-try engine.addTemplate("page.html", page_source);
 try engine.addTemplate("base.html", base_source);
+try engine.addTemplate("page.html", page_source);
 
-// Set up data
 var ctx: toupee.Context = .{};
 try ctx.putData(allocator, "title", .{ .string = "Hello" });
-defer ctx.deinit(allocator);
+defer ctx.data.deinit(allocator);
 
-// Templates available via include/extend resolve through the Resolver
 var resolver: toupee.Resolver = .{};
-try resolver.put(allocator, "base.html", base_source);
-defer resolver.deinit(allocator);
-
-// Render
 const html = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
 defer allocator.free(html);
+```
+
+### Live server (HTMX fragments)
+
+```zig
+// Setup phase (at server startup)
+var engine = try toupee.Engine.init(allocator);
+try engine.addTemplate("user-status.html",
+    \\<div id="status"><t-var name="name" /> is <t-var name="status" /></div>
+);
+
+// Validate all templates before serving
+var resolver: toupee.Resolver = .{};
+const diags = try engine.validate(allocator, &resolver);
+defer allocator.free(diags);
+
+// Serve phase (per-request, thread-safe)
+var ctx: toupee.Context = .{};
+try ctx.putData(allocator, "name", .{ .string = "Alice" });
+try ctx.putData(allocator, "status", .{ .string = "online" });
+defer ctx.data.deinit(allocator);
+
+try engine.renderTemplateToWriter(allocator, "user-status.html", &ctx, &resolver, .{}, response.writer());
 ```
 
 Or skip the Engine for one-shot rendering:
@@ -124,7 +146,7 @@ zig build fuzz    # fuzz testing for parser and renderer
 
 ## Documentation
 
-- **[Template Author Guide](docs/guide/)** -- getting started, variables, control flow, composition, transforms, patterns
+- **[Template Author Guide](docs/guide/)** -- getting started, variables, control flow, composition, transforms, patterns, tutorial
 - **[Library API Reference](docs/api/)** -- Engine, Context, errors, integration
 - **[Contributor Guide](docs/contributing/)** -- architecture, adding elements/transforms, testing, code style
 - **[Element Reference](docs/reference.dj)** -- complete element and transform reference

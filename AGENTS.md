@@ -1,6 +1,6 @@
 # Toupee
 
-Build-time HTML template engine in Zig. Processes `<t-*>` custom elements to produce clean HTML. Designed as an embeddable library for static site generators.
+HTML template engine in Zig. Processes `<t-*>` custom elements to produce clean HTML. Designed as an embeddable library for both static site generators and live web servers (HTMX fragments, scope isolation, startup validation, thread-safe rendering, writer API).
 
 **Brand:** "HTML templates, zero magic."
 
@@ -22,17 +22,25 @@ template source ([]const u8)
 
 The IR is a flat `[]Node` tagged union slice (not a tree). Nesting is expressed through child slices into the same array. All node memory is arena-allocated; freeing the arena frees all nodes.
 
+### Two-phase ownership model
+
+The Engine follows a two-phase usage pattern:
+
+- **Setup phase** (mutable `*Engine`): `addTemplate`, `removeTemplate`, `clearTemplates`, `registerTransform`. These mutate `cache` and `registry` and must not be called concurrently.
+- **Serve phase** (immutable `*const Engine`): `renderTemplate`, `renderTemplateToWriter`, `renderTemplateFormatted`, `render`, `renderToWriter`, `renderFormatted`, `renderFormattedToWriter`, `validate`. These take `*const Engine` and are safe for concurrent use -- each call allocates its own arena and passes State by value.
+
 ## Module Map
 
 | File | Responsibility |
 | --- | --- |
-| `root.zig` | Public API: `Engine`, `render()`, `renderFormatted()`, `RenderResult`, type re-exports |
-| `Parser.zig` | Template source → `[]Node` IR. Single-pass recursive descent. |
+| `root.zig` | Public API: `Engine` (template cache, transform registry, rendering, validation, writer API), convenience `render()`, type re-exports |
+| `Parser.zig` | Template source → `[]Node` IR. Single-pass recursive descent. Populates `ErrorDetail` at all error sites. |
 | `Renderer.zig` | `[]Node` IR + Context → output string. Visitor over the node array. |
-| `Node.zig` | IR type definitions: tagged union + supporting structs |
+| `Node.zig` | IR type definitions: tagged union + supporting structs (includes `ContextBinding` for scope isolation) |
 | `Context.zig` | `Context`, `Resolver`, `ErrorDetail`, `IncludeEntry`, `RenderError` |
 | `Value.zig` | `Value` tagged union (`string`, `boolean`, `integer`, `list`, `map`, `nil`), dot-path resolution |
-| `transform.zig` | `Registry`, `TransformFn`, built-in transforms |
+| `diagnostic.zig` | `Diagnostic` (validation results), `setError` (shared error-reporting for Parser and Renderer), `extractSourceLine`, `computeCaretLen`, `levenshtein` |
+| `transform.zig` | `Registry`, `TransformFn`, built-in transforms (including `js_escape` for JavaScript string contexts) |
 | `html.zig` | Tag parsing, attribute extraction, HTML escaping |
 | `indent.zig` | Indentation propagation, common-indent stripping |
 | `format.zig` | Post-render HTML pretty-printer (2-space indent) |
@@ -49,9 +57,15 @@ The IR is a flat `[]Node` tagged union slice (not a tree). Nesting is expressed 
 var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
-try engine.addTemplate("page.html", source);    // parse + cache IR
-try engine.registerTransform("date", dateFn);    // custom transform
+// Setup phase
+try engine.addTemplate("page.html", source);
+try engine.registerTransform("date", dateFn);
 
+// Validate before serving
+const diags = try engine.validate(allocator, &resolver);
+defer allocator.free(diags);
+
+// Serve phase (thread-safe)
 const result = try engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
 defer allocator.free(result);
 ```
@@ -62,6 +76,32 @@ defer allocator.free(result);
 const result = try toupee.render(allocator, source, &ctx, &resolver, .{});
 defer allocator.free(result);
 ```
+
+### Engine methods
+
+**Setup phase** (mutable `*Engine`, not thread-safe):
+
+| Method | Purpose |
+| --- | --- |
+| `addTemplate(name, source)` | Parse and cache a template (replaces existing) |
+| `removeTemplate(name)` | Remove a cached template (no-op if not found) |
+| `clearTemplates()` | Remove all cached templates |
+| `registerTransform(name, fn)` | Register a custom transform function |
+
+**Serve phase** (immutable `*const Engine`, thread-safe):
+
+| Method | Purpose |
+| --- | --- |
+| `renderTemplate(a, name, ctx, resolver, opts)` | Render a cached template |
+| `renderTemplateFormatted(a, name, ctx, resolver, opts)` | Render cached template with pretty-printing |
+| `renderTemplateToWriter(a, name, ctx, resolver, opts, writer)` | Render cached template to a writer |
+| `render(a, source, ctx, resolver, opts)` | Parse and render raw source |
+| `renderFormatted(a, source, ctx, resolver, opts)` | Parse and render with pretty-printing |
+| `renderToWriter(a, source, ctx, resolver, opts, writer)` | Parse and render to a writer |
+| `renderFormattedToWriter(a, source, ctx, resolver, opts, writer)` | Parse, render, pretty-print to a writer |
+| `validate(a, resolver)` | Check all cached templates for missing includes/extends |
+| `renderOwned(a, source, ctx, resolver, opts)` | Render returning a `RenderResult` |
+| `renderTemplateOwned(a, name, ctx, resolver, opts)` | Render cached returning a `RenderResult` |
 
 ### Options
 
@@ -96,10 +136,27 @@ defer result.deinit();
 | `<t-extend template="base.html">` | Template inheritance. Contains `<t-define>` children. |
 | `<t-slot name="x" />` | Insertion point in parent template. Block form for defaults. |
 | `<t-define name="x">content</t-define>` | Fill a slot (inside `<t-extend>` or `<t-include>`) |
-| `<t-include template="x.html" />` | Include a component. Supports attributes and `<t-define>` children. |
+| `<t-include template="x.html" />` | Include a component. Supports attributes, `<t-define>` children, `isolated`, and `context`. |
 | `<t-attr name="x" />` | Output an include attribute value |
 | `<t-comment>ignored</t-comment>` | Stripped from output |
 | `<t-debug />` | Context dump (only when `debug: true` in Options) |
+
+### Scope isolation for includes
+
+Isolated includes receive only explicitly passed data, preventing accidental data leakage:
+
+```html
+<!-- Card receives only post.* from parent context -->
+<t-include template="card.html" isolated context="post" author="QuiteClose" />
+
+<!-- Renamed paths to avoid collision -->
+<t-include template="profile.html" isolated context="post.author as writer, comment.author as reviewer" />
+
+<!-- Fully isolated: only attrs and slots, no context -->
+<t-include template="badge.html" isolated label="New" />
+```
+
+The `context` attribute is a comma-separated list of data paths. Each entry is either `path` (inserted under its leaf segment) or `path as name` (inserted under the specified name). The `as` keyword is consistent with `<t-for item in collection as loop>`.
 
 ### Attribute bindings
 
@@ -129,7 +186,7 @@ Applied via `transform` attribute with pipe chaining:
 ```
 
 **String:** `upper`, `lower`, `capitalize`, `trim`, `slugify`, `truncate:N`, `replace:find:replacement`, `default:fallback`
-**HTML/URL:** `escape`, `url_encode`, `url_decode`
+**HTML/URL/JS:** `escape`, `url_encode`, `url_decode`, `js_escape`
 **Collection:** `join:separator`, `split:separator`, `first:N`, `last:N`
 **Numeric:** `length`, `abs`, `floor`, `ceil`
 **Date:** `date` (placeholder pass-through)
@@ -140,7 +197,7 @@ Custom transforms registered via `Engine.registerTransform()`. Signature: `*cons
 
 `Context` has two scopes:
 
-- `data: Value.Map` — nested data tree (variables). Accessed via dot-path resolution (`page.title` → `data["page"]["title"]`).
+- `data: Value.Map` — nested data tree (variables). Accessed via dot-path resolution (`page.title` → `data["page"]["title"]`). Caller-owned; the Renderer copies data on entry to child contexts, so the original is safe to reuse across render calls.
 - `slots: StringArrayHashMap([]const u8)` — rendered template fragments for slot filling.
 
 `Value` is a tagged union: `string`, `boolean`, `integer`, `list`, `map`, `nil`. Variables resolve to `Value` via dot-path splitting on `.`.
@@ -163,7 +220,16 @@ Exception: `loop.first` and `loop.last` use existence semantics — they are onl
 - Typo suggestion via Levenshtein distance (for `UndefinedVariable`)
 - `Kind` enum: `undefined_variable`, `template_not_found`, `circular_reference`, `malformed_element`, `duplicate_slot`
 
-Error detail is populated by the Renderer (not the Parser). Parser errors (`MalformedElement`, `DuplicateSlotDefinition`) surface as bare errors without `ErrorDetail` fields.
+Error detail is populated by both the Parser (for `MalformedElement`, `DuplicateSlotDefinition`) and the Renderer (for runtime errors). The `diagnostic.zig` module provides shared error-reporting utilities (`setError`, `extractSourceLine`, `computeCaretLen`, `levenshtein`) used by both.
+
+### Startup validation
+
+`Engine.validate()` walks all cached templates and reports problems before serving traffic:
+
+- Missing `<t-include>` targets (not in cache or resolver)
+- Missing `<t-extend>` targets (not in cache or resolver)
+
+Returns `[]const Diagnostic` with template name, kind (err/warning), and message.
 
 ## Test Format
 
@@ -206,10 +272,10 @@ zig build         # library + CLI stub
 
 ## Code Style
 
-- **40-line function limit.** Extract helpers if a function grows beyond this.
+- **Readability-first function length.** Function length is a soft signal, not a hard limit. The test is comprehension: can a new reader follow the function without scrolling back and forth? A 45-line function that reads clearly is better than a 30-line function that calls a single-use helper elsewhere.
 - **camelCase** for functions, **PascalCase** for types, **snake_case** for fields/constants/enum values.
 - All configurable values in blocks exposed as custom properties with defaults.
-- Error handling: populate `ErrorDetail` via `setRichError()` before returning errors. Include `source_pos` in all node types that can produce errors.
+- Error handling: populate `ErrorDetail` via `diagnostic.setError()` before returning errors. Include `source_pos` in all node types that can produce errors.
 - Comments explain non-obvious intent only. No narrating what code does.
 - Imports: standard library first, then project modules.
 
@@ -217,13 +283,13 @@ zig build         # library + CLI stub
 
 All documentation is in Djot format (`.dj`):
 
-**Template Author Guide** (`docs/guide/`): `getting-started.dj`, `variables.dj`, `composition.dj`, `control-flow.dj`, `transforms.dj`, `patterns.dj`
+**Template Author Guide** (`docs/guide/`): `getting-started.dj`, `variables.dj`, `composition.dj`, `control-flow.dj`, `transforms.dj`, `patterns.dj`, `tutorial.dj`
 
 **Library API Reference** (`docs/api/`): `engine.dj`, `context.dj`, `errors.dj`, `integration.dj`
 
 **Contributor Guide** (`docs/contributing/`): `architecture.dj`, `adding-elements.dj`, `adding-transforms.dj`, `testing.dj`, `code-style.dj`
 
-**Reference** (`docs/`): `reference.dj`, `getting-started.dj`, `architecture.dj`, `deep-dive.dj`
+**Reference** (`docs/`): `reference.dj`, `getting-started.dj`
 
 ## Relationship to Wig
 
@@ -237,11 +303,14 @@ The website repo (`quiteclose.github.io/`) contains an earlier prototype of the 
 - **IR is flat `[]Node`**, not a tree. Zig favours contiguous data. Child nesting through sub-slices.
 - **Existence semantics for conditionals.** `<t-if var="x">` checks presence, not truthiness. Boolean `false` still exists.
 - **Strict mode default.** Undefined variables without defaults cause errors. Opt out with `strict: false`.
-- **No expression evaluator.** Transforms and conditionals cover the SSG use case.
+- **No expression evaluator.** Transforms and conditionals cover the use case.
 - **No macros.** `<t-include>` with attributes and slots is the composition mechanism.
-- **No sandboxing.** Build-time only; templates are developer-authored.
-- **No browser support.** Toupee is a build tool.
-- **No async.** Build-time rendering has no async data sources.
+- **Scope isolation.** `<t-include isolated context="...">` provides explicit data passing for safe component composition. The `context` attribute uses `as` for renaming, consistent with `<t-for ... as alias>`.
+- **Two-phase threading model.** Setup phase (mutable) then serve phase (immutable, concurrent). No locking needed because the Engine is immutable during rendering.
+- **Writer API wraps render.** Writer methods buffer the full output then write, rather than streaming during rendering. This keeps the rendering pipeline simple. Internal streaming is a future optimization only if profiling shows the wrapper is a bottleneck.
+- **`js_escape` transform.** For safely embedding values in JavaScript string literals, common in HTMX patterns.
+- **No browser support.** Toupee is a server-side tool.
+- **No async.** Rendering has no async data sources.
 - **`loop.first`/`loop.last` use conditional presence** (only set on first/last iteration) rather than boolean values, so they work naturally with existence-based `<t-if>`.
 - **For-else `<t-else />` inside `<t-for>`** correctly tracks both `<t-if>` and `<t-for>` nesting depth to avoid false matches.
 - **Glob matching** for `matches` comparisons uses `*` (any sequence) and `?` (one character). Not regex.
