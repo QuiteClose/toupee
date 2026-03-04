@@ -1219,3 +1219,88 @@ test "parse nested source positions" {
     const var_pos = body[1].variable.source_pos;
     try testing.expectEqual(@as(usize, 16), var_pos);
 }
+
+test "parse include isolated with context bindings" {
+    var result = try parse(testing.allocator,
+        \\<t-include template="card.html" isolated context="post, site.title as title" />
+    , .{});
+    defer result.deinit();
+    const inc = result.nodes[0].include;
+    try testing.expectEqualStrings("card.html", inc.template);
+    try testing.expect(inc.isolated);
+    try testing.expectEqual(@as(usize, 2), inc.context_bindings.len);
+    try testing.expectEqualStrings("post", inc.context_bindings[0].path);
+    try testing.expectEqualStrings("post", inc.context_bindings[0].key);
+    try testing.expectEqualStrings("site.title", inc.context_bindings[1].path);
+    try testing.expectEqualStrings("title", inc.context_bindings[1].key);
+}
+
+test "parse include isolated without context" {
+    var result = try parse(testing.allocator,
+        \\<t-include template="badge.html" isolated label="New" />
+    , .{});
+    defer result.deinit();
+    const inc = result.nodes[0].include;
+    try testing.expect(inc.isolated);
+    try testing.expectEqual(@as(usize, 0), inc.context_bindings.len);
+    try testing.expectEqual(@as(usize, 1), inc.attrs.len);
+    try testing.expectEqualStrings("label", inc.attrs[0].name);
+    try testing.expectEqualStrings("New", inc.attrs[0].value);
+}
+
+test "parse include not isolated by default" {
+    var result = try parse(testing.allocator,
+        \\<t-include template="card.html" />
+    , .{});
+    defer result.deinit();
+    try testing.expect(!result.nodes[0].include.isolated);
+    try testing.expectEqual(@as(usize, 0), result.nodes[0].include.context_bindings.len);
+}
+
+test "parse conditional with not-exists" {
+    var result = try parse(testing.allocator, "<t-if var=\"x\" not-exists>yes</t-if>", .{});
+    defer result.deinit();
+    try testing.expect(result.nodes[0].conditional.branches[0].condition.comparison == .not_exists);
+}
+
+test "parse conditional with not-equals" {
+    var result = try parse(testing.allocator, "<t-if var=\"x\" not-equals=\"draft\">yes</t-if>", .{});
+    defer result.deinit();
+    switch (result.nodes[0].conditional.branches[0].condition.comparison) {
+        .not_equals => |v| try testing.expectEqualStrings("draft", v),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "parse conditional on attr source" {
+    var result = try parse(testing.allocator, "<t-if attr=\"variant\" equals=\"primary\">yes</t-if>", .{});
+    defer result.deinit();
+    const cond = result.nodes[0].conditional.branches[0].condition;
+    try testing.expectEqual(N.Condition.Source.attr, cond.source);
+    try testing.expectEqualStrings("variant", cond.name);
+}
+
+test "parse conditional on slot source" {
+    var result = try parse(testing.allocator, "<t-if slot=\"footer\">yes</t-if>", .{});
+    defer result.deinit();
+    try testing.expectEqual(N.Condition.Source.slot, result.nodes[0].conditional.branches[0].condition.source);
+}
+
+test "parse let binding with transform" {
+    var result = try parse(testing.allocator, "<t-let name=\"slug\" transform=\"slugify\">Hello World</t-let>", .{});
+    defer result.deinit();
+    const lb = result.nodes[0].let_binding;
+    try testing.expectEqualStrings("slug", lb.name);
+    try testing.expectEqual(@as(usize, 1), lb.transform.len);
+    try testing.expectEqualStrings("slugify", lb.transform[0].name);
+}
+
+test "parse variable has_body flag" {
+    var self_closing = try parse(testing.allocator, "<t-var name=\"x\" />", .{});
+    defer self_closing.deinit();
+    try testing.expect(!self_closing.nodes[0].variable.has_body);
+
+    var block = try parse(testing.allocator, "<t-var name=\"x\">default</t-var>", .{});
+    defer block.deinit();
+    try testing.expect(block.nodes[0].variable.has_body);
+}
