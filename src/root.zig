@@ -260,9 +260,119 @@ pub const Engine = struct {
     }
 };
 
-/// One-shot render: parses raw source each time and renders. No engine required.
-/// If `options.registry` is null, a temporary registry with built-ins is used.
-/// Returns output owned by `a`; caller must free.
+/// Validates template source at compile time. Produces a `@compileError` for
+/// malformed templates: unknown element names, unclosed block elements, and
+/// missing required attributes. Validation only -- does not build IR.
+///
+/// Shares element name and attribute rules with the runtime parser.
+///
+/// ```zig
+/// const page = comptime blk: {
+///     const src = @embedFile("templates/page.html");
+///     validateTemplate(src);
+///     break :blk src;
+/// };
+/// ```
+pub fn validateTemplate(comptime source: []const u8) void {
+    comptime {
+        @setEvalBranchQuota(@max(source.len * 100, 10000));
+        var depth: usize = 0;
+        var stack: [64][]const u8 = undefined;
+        var i: usize = 0;
+        while (i < source.len) {
+            if (source[i] != '<') {
+                i += 1;
+                continue;
+            }
+            if (i + 3 < source.len and source[i + 1] == '/' and source[i + 2] == 't' and source[i + 3] == '-') {
+                const close_start = i + 4;
+                var close_end = close_start;
+                while (close_end < source.len and source[close_end] != '>') : (close_end += 1) {}
+                if (close_end >= source.len) @compileError("unclosed closing tag");
+                const close_name = source[close_start..close_end];
+                if (!isValidElement(close_name)) @compileError("unknown element: t-" ++ close_name);
+                if (depth == 0) @compileError("unexpected closing tag: </t-" ++ close_name ++ ">");
+                const expected = stack[depth - 1];
+                if (!std.mem.eql(u8, close_name, expected))
+                    @compileError("mismatched closing tag: expected </t-" ++ expected ++ ">, found </t-" ++ close_name ++ ">");
+                depth -= 1;
+                i = close_end + 1;
+                continue;
+            }
+            if (i + 2 < source.len and source[i + 1] == 't' and source[i + 2] == '-') {
+                const name_start = i + 3;
+                var name_end = name_start;
+                while (name_end < source.len and source[name_end] != ' ' and source[name_end] != '>' and source[name_end] != '/') : (name_end += 1) {}
+                if (name_end == name_start) {
+                    i += 1;
+                    continue;
+                }
+                const elem_name = source[name_start..name_end];
+                if (!isValidElement(elem_name)) @compileError("unknown element: t-" ++ elem_name);
+                var tag_end = name_end;
+                while (tag_end < source.len and source[tag_end] != '>') : (tag_end += 1) {}
+                if (tag_end >= source.len) @compileError("unclosed tag: <t-" ++ elem_name);
+                const is_self_closing = source[tag_end - 1] == '/';
+                const tag_content = source[i..tag_end + 1];
+                if (requiresName(elem_name) and !comptimeContainsAttr(tag_content, "name") and !comptimeContainsAttr(tag_content, "slot")) {
+                    @compileError("missing 'name' attribute on <t-" ++ elem_name ++ ">");
+                }
+                if (requiresTemplate(elem_name) and !comptimeContainsAttr(tag_content, "template")) {
+                    @compileError("missing 'template' attribute on <t-" ++ elem_name ++ ">");
+                }
+                if (!is_self_closing and isBlockElement(elem_name)) {
+                    if (depth >= 64) @compileError("template nesting too deep (>64 levels)");
+                    stack[depth] = elem_name;
+                    depth += 1;
+                }
+                i = tag_end + 1;
+                continue;
+            }
+            i += 1;
+        }
+        if (depth > 0) @compileError("unclosed element: <t-" ++ stack[depth - 1] ++ ">");
+    }
+}
+
+fn isValidElement(comptime name: []const u8) bool {
+    inline for (Parser.valid_element_names) |valid| {
+        if (comptime std.mem.eql(u8, name, valid)) return true;
+    }
+    return false;
+}
+
+fn isBlockElement(comptime name: []const u8) bool {
+    inline for (Parser.block_elements) |block| {
+        if (comptime std.mem.eql(u8, name, block)) return true;
+    }
+    return false;
+}
+
+fn requiresName(comptime name: []const u8) bool {
+    inline for (Parser.name_required) |req| {
+        if (comptime std.mem.eql(u8, name, req)) return true;
+    }
+    return false;
+}
+
+fn requiresTemplate(comptime name: []const u8) bool {
+    inline for (Parser.template_required) |req| {
+        if (comptime std.mem.eql(u8, name, req)) return true;
+    }
+    return false;
+}
+
+fn comptimeContainsAttr(comptime tag: []const u8, comptime attr: []const u8) bool {
+    const needle = attr ++ "=";
+    var i: usize = 0;
+    while (i + needle.len <= tag.len) : (i += 1) {
+        if (comptime std.mem.eql(u8, tag[i .. i + needle.len], needle)) return true;
+    }
+    return false;
+}
+
+/// One-shot render: parses `input` each time, creates a temporary transform registry.
+/// Output is owned by the allocator `a`.
 pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
     if (options.registry != null) return renderImpl(a, input, ctx, resolver, options);
     var reg: transform.Registry = .{};
@@ -570,6 +680,21 @@ test "engine addTemplate replaces existing" {
     const result = try engine.renderTemplate(testing.allocator, "page.html", &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("v2", result);
+}
+
+test "comptime validateTemplate accepts valid templates" {
+    comptime {
+        validateTemplate("<t-var name=\"x\" />");
+        validateTemplate("<t-var name=\"x\">default</t-var>");
+        validateTemplate("<t-if var=\"x\"><t-var name=\"y\" /></t-if>");
+        validateTemplate("<t-for item in items><t-var name=\"item\" /></t-for>");
+        validateTemplate("<t-include template=\"card.html\" />");
+        validateTemplate("<t-extend template=\"base.html\"><t-define name=\"main\">content</t-define></t-extend>");
+        validateTemplate("<t-comment>ignored</t-comment>");
+        validateTemplate("<t-let name=\"x\">captured</t-let>");
+        validateTemplate("plain text with no elements");
+        validateTemplate("");
+    }
 }
 
 test {

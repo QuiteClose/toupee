@@ -187,7 +187,27 @@ fn findBoundTagEnd(input: []const u8, pos: usize) ?usize {
     return end_offset;
 }
 
-const Element = enum { t_var, t_raw, t_let, t_comment, t_debug, t_attr, t_slot, t_include, t_for, t_if, t_else, t_elif };
+pub const Element = enum { t_var, t_raw, t_let, t_comment, t_debug, t_attr, t_slot, t_include, t_for, t_if, t_else, t_elif };
+
+/// Valid element names for the `t-` prefix. Shared between runtime parser and comptime validator.
+pub const valid_element_names = [_][]const u8{
+    "var", "raw", "let", "comment", "debug", "attr", "slot", "include", "for", "if", "else", "elif", "extend", "define",
+};
+
+/// Elements requiring a closing tag (block elements).
+pub const block_elements = [_][]const u8{
+    "var", "raw", "let", "comment", "slot", "include", "for", "if", "extend", "define",
+};
+
+/// Elements that must have a `name` attribute.
+pub const name_required = [_][]const u8{
+    "var", "raw", "let", "attr", "slot", "define",
+};
+
+/// Elements that must have a `template` attribute.
+pub const template_required = [_][]const u8{
+    "include", "extend",
+};
 
 fn matchElement(input: []const u8) ?Element {
     const tags = .{
