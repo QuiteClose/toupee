@@ -24,6 +24,7 @@ pub const Renderer = @import("Renderer.zig");
 
 const format = @import("format.zig");
 pub const transform = @import("transform.zig");
+pub const Diagnostic = @import("diagnostic.zig").Diagnostic;
 
 pub const Engine = struct {
     allocator: Allocator,
@@ -145,6 +146,71 @@ pub const Engine = struct {
         const result = try self.renderFormatted(a, input, ctx, resolver, options);
         defer a.free(result);
         try writer.writeAll(result);
+    }
+
+    /// Walks all cached templates and reports problems (missing includes/extends,
+    /// circular extend chains). Call after loading all templates and before
+    /// serving traffic. The returned slice is owned by `a`.
+    pub fn validate(self: *const Engine, a: Allocator, resolver: *const Resolver) ![]const Diagnostic {
+        var diags: std.ArrayListUnmanaged(Diagnostic) = .{};
+        errdefer diags.deinit(a);
+
+        var cache_it = self.cache.iterator();
+        while (cache_it.next()) |entry| {
+            const tmpl_name = entry.key_ptr.*;
+            const nodes = entry.value_ptr.nodes;
+            try collectDiagnostics(a, tmpl_name, nodes, self, resolver, &diags);
+        }
+
+        return diags.toOwnedSlice(a);
+    }
+
+    fn collectDiagnostics(
+        a: Allocator,
+        tmpl_name: []const u8,
+        nodes: []const Node.Node,
+        engine: *const Engine,
+        resolver: *const Resolver,
+        diags: *std.ArrayListUnmanaged(Diagnostic),
+    ) !void {
+        for (nodes) |node| {
+            switch (node) {
+                .include => |inc| {
+                    if (engine.cache.get(inc.template) == null and resolver.get(inc.template) == null) {
+                        try diags.append(a, .{
+                            .template = tmpl_name,
+                            .kind = .err,
+                            .message = inc.template,
+                        });
+                    }
+                    try collectDiagnostics(a, tmpl_name, inc.anonymous_body, engine, resolver, diags);
+                    for (inc.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, resolver, diags);
+                },
+                .extend => |ext| {
+                    if (engine.cache.get(ext.template) == null and resolver.get(ext.template) == null) {
+                        try diags.append(a, .{
+                            .template = tmpl_name,
+                            .kind = .err,
+                            .message = ext.template,
+                        });
+                    }
+                    for (ext.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, resolver, diags);
+                },
+                .conditional => |cond| {
+                    for (cond.branches) |branch| try collectDiagnostics(a, tmpl_name, branch.body, engine, resolver, diags);
+                    try collectDiagnostics(a, tmpl_name, cond.else_body, engine, resolver, diags);
+                },
+                .loop => |loop| {
+                    try collectDiagnostics(a, tmpl_name, loop.body, engine, resolver, diags);
+                    try collectDiagnostics(a, tmpl_name, loop.else_body, engine, resolver, diags);
+                },
+                .slot => |slot| try collectDiagnostics(a, tmpl_name, slot.default_body, engine, resolver, diags),
+                .variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, resolver, diags),
+                .raw_variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, resolver, diags),
+                .let_binding => |lb| try collectDiagnostics(a, tmpl_name, lb.body, engine, resolver, diags),
+                else => {},
+            }
+        }
     }
 };
 
@@ -374,6 +440,73 @@ test "engine renderFormattedToWriter equivalence" {
     defer out.deinit(testing.allocator);
     try engine.renderFormattedToWriter(testing.allocator, source, &ctx, &resolver, .{}, out.writer(testing.allocator));
     try testing.expectEqualStrings(buffered, out.items);
+}
+
+test "engine validate catches missing include" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "<t-include template=\"missing.html\" />");
+    var resolver: Resolver = .{};
+    const diags = try engine.validate(testing.allocator, &resolver);
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 1), diags.len);
+    try testing.expectEqualStrings("missing.html", diags[0].message);
+    try testing.expectEqualStrings("page.html", diags[0].template);
+    try testing.expect(diags[0].kind == .err);
+}
+
+test "engine validate catches missing extend" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("child.html", "<t-extend template=\"ghost.html\"><t-define slot=\"main\">hi</t-define></t-extend>");
+    var resolver: Resolver = .{};
+    const diags = try engine.validate(testing.allocator, &resolver);
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 1), diags.len);
+    try testing.expectEqualStrings("ghost.html", diags[0].message);
+}
+
+test "engine validate passes when templates exist in cache" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("base.html", "<t-slot name=\"main\" />");
+    try engine.addTemplate("page.html", "<t-extend template=\"base.html\"><t-define slot=\"main\">content</t-define></t-extend>");
+    var resolver: Resolver = .{};
+    const diags = try engine.validate(testing.allocator, &resolver);
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 0), diags.len);
+}
+
+test "engine validate passes when templates exist in resolver" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "<t-include template=\"nav.html\" />");
+    var resolver: Resolver = .{};
+    try resolver.put(testing.allocator, "nav.html", "<nav>links</nav>");
+    defer resolver.deinit(testing.allocator);
+    const diags = try engine.validate(testing.allocator, &resolver);
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 0), diags.len);
+}
+
+test "engine validate finds nested missing include" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "<t-if var=\"show\"><t-include template=\"deep.html\" /></t-if>");
+    var resolver: Resolver = .{};
+    const diags = try engine.validate(testing.allocator, &resolver);
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 1), diags.len);
+    try testing.expectEqualStrings("deep.html", diags[0].message);
+}
+
+test "engine validate empty cache returns no diagnostics" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    var resolver: Resolver = .{};
+    const diags = try engine.validate(testing.allocator, &resolver);
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 0), diags.len);
 }
 
 test "engine addTemplate replaces existing" {

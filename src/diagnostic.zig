@@ -4,6 +4,16 @@ const h = @import("html.zig");
 
 pub const ErrorDetail = Ctx.ErrorDetail;
 
+pub const Diagnostic = struct {
+    template: []const u8,
+    kind: Kind,
+    message: []const u8,
+    line: usize = 0,
+    column: usize = 0,
+
+    pub const Kind = enum { err, warning };
+};
+
 pub fn setError(
     ed: ?*ErrorDetail,
     source: []const u8,
