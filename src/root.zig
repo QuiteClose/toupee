@@ -119,6 +119,33 @@ pub const Engine = struct {
         }
         self.cache.clearRetainingCapacity();
     }
+
+    /// Renders a cached template and writes the result to `writer`.
+    /// If the writer fails mid-write, partial output may have been written.
+    /// Use a buffered writer if atomicity is needed.
+    pub fn renderTemplateToWriter(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+        const result = try self.renderTemplate(a, name, ctx, resolver, options);
+        defer a.free(result);
+        try writer.writeAll(result);
+    }
+
+    /// Renders raw template source and writes the result to `writer`.
+    /// If the writer fails mid-write, partial output may have been written.
+    /// Use a buffered writer if atomicity is needed.
+    pub fn renderToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+        const result = try self.render(a, input, ctx, resolver, options);
+        defer a.free(result);
+        try writer.writeAll(result);
+    }
+
+    /// Renders raw template source with pretty-printing and writes to `writer`.
+    /// If the writer fails mid-write, partial output may have been written.
+    /// Use a buffered writer if atomicity is needed.
+    pub fn renderFormattedToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+        const result = try self.renderFormatted(a, input, ctx, resolver, options);
+        defer a.free(result);
+        try writer.writeAll(result);
+    }
 };
 
 pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
@@ -295,6 +322,58 @@ test "engine HTMX fragment pattern" {
     const result = try engine.renderTemplate(testing.allocator, "user-status.html", &ctx, &resolver, .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("<div id=\"status\">Alice is online</div>", result);
+}
+
+test "engine renderTemplateToWriter equivalence" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("greet.html", "Hello <t-var name=\"name\" />!");
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "name", .{ .string = "World" });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+
+    const buffered = try engine.renderTemplate(testing.allocator, "greet.html", &ctx, &resolver, .{});
+    defer testing.allocator.free(buffered);
+
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    defer out.deinit(testing.allocator);
+    try engine.renderTemplateToWriter(testing.allocator, "greet.html", &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try testing.expectEqualStrings(buffered, out.items);
+}
+
+test "engine renderToWriter equivalence" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    const source = "Hi <t-var name=\"x\" />";
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "x", .{ .string = "42" });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+
+    const buffered = try engine.render(testing.allocator, source, &ctx, &resolver, .{});
+    defer testing.allocator.free(buffered);
+
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    defer out.deinit(testing.allocator);
+    try engine.renderToWriter(testing.allocator, source, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try testing.expectEqualStrings(buffered, out.items);
+}
+
+test "engine renderFormattedToWriter equivalence" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    const source = "<div>\n<p>hi</p>\n</div>";
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+
+    const buffered = try engine.renderFormatted(testing.allocator, source, &ctx, &resolver, .{});
+    defer testing.allocator.free(buffered);
+
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    defer out.deinit(testing.allocator);
+    try engine.renderFormattedToWriter(testing.allocator, source, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try testing.expectEqualStrings(buffered, out.items);
 }
 
 test "engine addTemplate replaces existing" {
