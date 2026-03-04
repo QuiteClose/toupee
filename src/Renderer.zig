@@ -73,7 +73,49 @@ pub fn render(
         .err_detail = ctx.err_detail,
     };
 
-    const state: State = .{
+    const state = initState(a, resolver, options);
+    const result = try renderNodes(state, nodes, &mutable_ctx, 0);
+    return try caller_a.dupe(u8, result);
+}
+
+/// Renders []Node IR, writing output to `writer` as each top-level node completes.
+/// Nested rendering (includes, slots, let bindings) still buffers internally.
+/// Text nodes are written directly to the writer without intermediate allocation.
+pub fn renderToWriter(
+    caller_a: Allocator,
+    nodes: []const Node,
+    ctx: *const Context,
+    resolver: *const Resolver,
+    options: Options,
+    writer: anytype,
+) !void {
+    var arena = std.heap.ArenaAllocator.init(caller_a);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var mutable_ctx: Context = .{
+        .data = try copyMap(a, ctx.data),
+        .attrs = ctx.attrs,
+        .slots = ctx.slots,
+        .err_detail = ctx.err_detail,
+    };
+
+    const state = initState(a, resolver, options);
+    for (nodes) |node| {
+        switch (node) {
+            .text => |text| try writer.writeAll(text),
+            .comment => {},
+            else => {
+                const single = [1]Node{node};
+                const chunk = try renderNodes(state, &single, &mutable_ctx, 0);
+                try writer.writeAll(chunk);
+            },
+        }
+    }
+}
+
+fn initState(a: Allocator, resolver: *const Resolver, options: Options) State {
+    return .{
         .a = a,
         .resolver = resolver,
         .max_depth = options.max_depth,
@@ -85,8 +127,6 @@ pub fn render(
         .include_stack_buf = [_]Ctx.IncludeEntry{.{}} ** 16,
         .include_stack_len = 0,
     };
-    const result = try renderNodes(state, nodes, &mutable_ctx, 0);
-    return try caller_a.dupe(u8, result);
 }
 
 fn renderNodes(state: State, nodes: []const Node, ctx: *Context, depth: usize) RenderError![]const u8 {
@@ -786,6 +826,64 @@ test "rich error populates ErrorDetail" {
     try testing.expectEqualStrings("title", ed.suggestion);
     try testing.expectEqualStrings(source, ed.source_line);
     try testing.expectEqual(@as(usize, 21), ed.caret_len);
+}
+
+test "renderToWriter matches render for text" {
+    const nodes = [_]Node{.{ .text = "hello" }};
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const buffered = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
+    defer testing.allocator.free(buffered);
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    defer out.deinit(testing.allocator);
+    try renderToWriter(testing.allocator, &nodes, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try testing.expectEqualStrings(buffered, out.items);
+}
+
+test "renderToWriter matches render for mixed nodes" {
+    const default_body = [_]Node{.{ .text = "default" }};
+    const body = [_]Node{.{ .text = "yes" }};
+    const branches = [_]N.Branch{.{
+        .condition = .{ .source = .variable, .name = "show" },
+        .body = &body,
+    }};
+    const nodes = [_]Node{
+        .{ .text = "<p>" },
+        .{ .variable = .{ .name = "title" } },
+        .{ .text = "</p>" },
+        .comment,
+        .{ .conditional = .{ .branches = &branches } },
+        .{ .variable = .{ .name = "missing", .default_body = &default_body, .has_body = true } },
+    };
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
+    try ctx.putData(testing.allocator, "show", .{ .string = "1" });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+
+    const buffered = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
+    defer testing.allocator.free(buffered);
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    defer out.deinit(testing.allocator);
+    try renderToWriter(testing.allocator, &nodes, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try testing.expectEqualStrings(buffered, out.items);
+}
+
+test "renderToWriter matches render with let binding" {
+    const let_body = [_]Node{.{ .text = "captured" }};
+    const nodes = [_]Node{
+        .{ .let_binding = .{ .name = "x", .body = &let_body } },
+        .{ .variable = .{ .name = "x" } },
+    };
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+
+    const buffered = try render(testing.allocator, &nodes, &ctx, &resolver, .{});
+    defer testing.allocator.free(buffered);
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    defer out.deinit(testing.allocator);
+    try renderToWriter(testing.allocator, &nodes, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try testing.expectEqualStrings(buffered, out.items);
 }
 
 test "rich error with include stack" {

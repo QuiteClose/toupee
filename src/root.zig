@@ -167,22 +167,25 @@ pub const Engine = struct {
         self.cache.clearRetainingCapacity();
     }
 
-    /// Renders a cached template and writes the result to `writer`.
+    /// Renders a cached template, streaming output to `writer` as each top-level node completes.
     /// If the writer fails mid-write, partial output may have been written.
     /// Use a buffered writer if atomicity is needed.
     pub fn renderTemplateToWriter(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
-        const result = try self.renderTemplate(a, name, ctx, resolver, options);
-        defer a.free(result);
-        try writer.writeAll(result);
+        const entry = self.cache.get(name) orelse return error.TemplateNotFound;
+        var opts = options;
+        opts.registry = &self.registry;
+        opts.template_name = name;
+        opts.template_source = entry.source;
+        try Renderer.renderToWriter(a, entry.nodes, ctx, resolver, opts, writer);
     }
 
-    /// Renders raw template source and writes the result to `writer`.
+    /// Renders raw template source, streaming output to `writer` as each top-level node completes.
     /// If the writer fails mid-write, partial output may have been written.
     /// Use a buffered writer if atomicity is needed.
     pub fn renderToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
-        const result = try self.render(a, input, ctx, resolver, options);
-        defer a.free(result);
-        try writer.writeAll(result);
+        var opts = options;
+        opts.registry = &self.registry;
+        try renderImplToWriter(a, input, ctx, resolver, opts, writer);
     }
 
     /// Renders raw template source with pretty-printing and writes to `writer`.
@@ -383,6 +386,18 @@ pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *c
     return renderImpl(a, input, ctx, resolver, opts);
 }
 
+/// One-shot streaming render: parses `input`, then writes output to `writer` node-by-node.
+/// Creates a temporary transform registry each call. Output is not buffered in full.
+pub fn renderToWriter(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+    if (options.registry != null) return renderImplToWriter(a, input, ctx, resolver, options, writer);
+    var reg: transform.Registry = .{};
+    try reg.registerBuiltins(a);
+    defer reg.deinit(a);
+    var opts = options;
+    opts.registry = &reg;
+    return renderImplToWriter(a, input, ctx, resolver, opts, writer);
+}
+
 /// One-shot render with pretty-print (re-indentation of existing newlines, no new ones inserted).
 /// Returns output owned by `a`; caller must free.
 pub fn renderFormatted(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
@@ -400,6 +415,17 @@ fn renderImpl(a: Allocator, input: []const u8, ctx: *const Context, resolver: *c
     var opts = options;
     if (opts.template_source.len == 0) opts.template_source = input;
     return Renderer.render(a, parse_result.nodes, ctx, resolver, opts);
+}
+
+fn renderImplToWriter(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+    var parse_result = try Parser.parse(a, input, .{
+        .err_detail = ctx.err_detail,
+        .template_name = options.template_name,
+    });
+    defer parse_result.deinit();
+    var opts = options;
+    if (opts.template_source.len == 0) opts.template_source = input;
+    try Renderer.renderToWriter(a, parse_result.nodes, ctx, resolver, opts, writer);
 }
 
 // ---- Tests ----
