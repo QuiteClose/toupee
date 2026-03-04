@@ -143,3 +143,39 @@ test "prettyPrint: inline content preserved" {
     defer a.free(result);
     try testing.expectEqualStrings("<p>Hello <strong>world</strong></p>", result);
 }
+
+test "prettyPrint: empty input" {
+    const a = testing.allocator;
+    const result = try prettyPrint(a, "");
+    defer a.free(result);
+    try testing.expectEqualStrings("", result);
+}
+
+test "prettyPrint: idempotent on already-formatted input" {
+    const a = testing.allocator;
+    const formatted = "<div>\n  <p>hello</p>\n  <ul>\n    <li>item</li>\n  </ul>\n</div>";
+    const result = try prettyPrint(a, formatted);
+    defer a.free(result);
+    try testing.expectEqualStrings(formatted, result);
+}
+
+test "prettyPrint: pre tag content preserved inline" {
+    const a = testing.allocator;
+    const result = try prettyPrint(a, "<pre>  code\n  here</pre>");
+    defer a.free(result);
+    try testing.expectEqualStrings("<pre>  code\n  here</pre>", result);
+}
+
+test "prettyPrint: multiple void elements" {
+    const a = testing.allocator;
+    const result = try prettyPrint(a, "<div>\n<input>\n<hr>\n<br>\n</div>");
+    defer a.free(result);
+    try testing.expectEqualStrings("<div>\n  <input>\n  <hr>\n  <br>\n</div>", result);
+}
+
+test "prettyPrint: sibling elements at same depth" {
+    const a = testing.allocator;
+    const result = try prettyPrint(a, "<div>\n<p>one</p>\n<p>two</p>\n</div>");
+    defer a.free(result);
+    try testing.expectEqualStrings("<div>\n  <p>one</p>\n  <p>two</p>\n</div>", result);
+}
