@@ -74,6 +74,7 @@ pub fn appendEscaped(a: Allocator, out: *std.ArrayList(u8), value: []const u8) R
             '<' => try out.appendSlice(a, "&lt;"),
             '>' => try out.appendSlice(a, "&gt;"),
             '"' => try out.appendSlice(a, "&quot;"),
+            '\'' => try out.appendSlice(a, "&#x27;"),
             else => try out.append(a, c),
         }
     }

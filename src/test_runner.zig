@@ -365,6 +365,7 @@ const test_file_names = [_][]const u8{
     "error.test",
     "integration.test",
     "edge.test",
+    "regression.test",
 };
 
 test "toupee test suite" {

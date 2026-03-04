@@ -135,13 +135,13 @@ fallback
 <!-- out -->
 <a href="?a=1&amp;b=2">link</a>
 
-<!-- test: var with single quote passes through -->
+<!-- test: var with single quote is escaped -->
 <!-- in -->
 <t-var name="x" />
 <!-- context -->
 {"data": {"x": "it's"}}
 <!-- out -->
-it's
+it&#x27;s
 
 <!-- test: var adjacent to text -->
 <!-- in -->

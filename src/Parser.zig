@@ -344,40 +344,58 @@ const ForSplit = struct {
 };
 
 fn splitForElse(full_body: []const u8) ForSplit {
-    const open_for = openTag("for");
-    const close_for = comptime closeTag("for");
+    const match = findAtDepthZero(full_body, 0, .for_context) orelse
+        return .{ .body = full_body, .else_body = null, .else_offset = 0 };
+    return .{
+        .body = full_body[0..match.pos],
+        .else_body = full_body[match.pos + match.tag_len ..],
+        .else_offset = match.pos + match.tag_len,
+    };
+}
+
+const ScanContext = enum { for_context, if_context };
+
+fn findAtDepthZero(body: []const u8, from: usize, context: ScanContext) ?Separator {
     const open_if = openTag("if");
     const close_if = comptime closeTag("if");
-    const else_tag = comptime "<" ++ prefix ++ "else";
-    var for_depth: usize = 0;
+    const open_for = openTag("for");
+    const close_for = comptime closeTag("for");
+    const open_elif = openTag("elif");
+    const open_else = comptime "<" ++ prefix ++ "else";
+
     var if_depth: usize = 0;
-    var i: usize = 0;
-    while (i < full_body.len) {
-        if (std.mem.startsWith(u8, full_body[i..], open_for)) {
-            for_depth += 1;
-            i += open_for.len;
-        } else if (std.mem.startsWith(u8, full_body[i..], close_for)) {
-            if (for_depth == 0) break;
-            for_depth -= 1;
-            i += close_for.len;
-        } else if (std.mem.startsWith(u8, full_body[i..], open_if)) {
+    var for_depth: usize = 0;
+    var i = from;
+    while (i < body.len) {
+        if (std.mem.startsWith(u8, body[i..], open_if)) {
             if_depth += 1;
             i += open_if.len;
-        } else if (std.mem.startsWith(u8, full_body[i..], close_if)) {
+        } else if (std.mem.startsWith(u8, body[i..], close_if)) {
+            if (context == .if_context and if_depth == 0) return null;
             if (if_depth > 0) if_depth -= 1;
             i += close_if.len;
-        } else if (for_depth == 0 and if_depth == 0 and std.mem.startsWith(u8, full_body[i..], else_tag)) {
-            const tag_end = h.findTagEnd(full_body[i..]) orelse break;
-            return .{
-                .body = full_body[0..i],
-                .else_body = full_body[i + tag_end + 1 ..],
-                .else_offset = i + tag_end + 1,
-            };
+        } else if (std.mem.startsWith(u8, body[i..], open_for)) {
+            for_depth += 1;
+            i += open_for.len;
+        } else if (std.mem.startsWith(u8, body[i..], close_for)) {
+            if (context == .for_context and for_depth == 0) break;
+            if (for_depth > 0) for_depth -= 1;
+            i += close_for.len;
+        } else if (if_depth == 0 and for_depth == 0) {
+            if (context == .if_context and std.mem.startsWith(u8, body[i..], open_elif)) {
+                const tag_end = h.findTagEnd(body[i..]) orelse return null;
+                return .{ .pos = i, .tag_len = tag_end + 1, .is_else = false };
+            } else if (std.mem.startsWith(u8, body[i..], open_else)) {
+                const tag_end = h.findTagEnd(body[i..]) orelse return null;
+                return .{ .pos = i, .tag_len = tag_end + 1, .is_else = true };
+            } else {
+                i += 1;
+            }
         } else {
             i += 1;
         }
     }
-    return .{ .body = full_body, .else_body = null, .else_offset = 0 };
+    return null;
 }
 
 const ForAttrs = struct {
@@ -684,41 +702,7 @@ fn parseUintAttr(tag: []const u8, name: []const u8) ParseError!?usize {
 const Separator = struct { pos: usize, tag_len: usize, is_else: bool };
 
 fn findConditionalSeparator(body: []const u8, from: usize) ?Separator {
-    const open_if = openTag("if");
-    const close_if = comptime closeTag("if");
-    const open_for = openTag("for");
-    const close_for = comptime closeTag("for");
-    const open_elif = openTag("elif");
-    const open_else = comptime "<" ++ prefix ++ "else";
-
-    var if_depth: usize = 0;
-    var for_depth: usize = 0;
-    var i = from;
-    while (i < body.len) {
-        if (std.mem.startsWith(u8, body[i..], open_if)) {
-            if_depth += 1;
-            i += open_if.len;
-        } else if (std.mem.startsWith(u8, body[i..], close_if)) {
-            if (if_depth == 0) return null;
-            if_depth -= 1;
-            i += close_if.len;
-        } else if (std.mem.startsWith(u8, body[i..], open_for)) {
-            for_depth += 1;
-            i += open_for.len;
-        } else if (std.mem.startsWith(u8, body[i..], close_for)) {
-            if (for_depth > 0) for_depth -= 1;
-            i += close_for.len;
-        } else if (if_depth == 0 and for_depth == 0 and std.mem.startsWith(u8, body[i..], open_elif)) {
-            const tag_end = h.findTagEnd(body[i..]) orelse return null;
-            return .{ .pos = i, .tag_len = tag_end + 1, .is_else = false };
-        } else if (if_depth == 0 and for_depth == 0 and std.mem.startsWith(u8, body[i..], open_else)) {
-            const tag_end = h.findTagEnd(body[i..]) orelse return null;
-            return .{ .pos = i, .tag_len = tag_end + 1, .is_else = true };
-        } else {
-            i += 1;
-        }
-    }
-    return null;
+    return findAtDepthZero(body, from, .if_context);
 }
 
 // ---- Tests ----

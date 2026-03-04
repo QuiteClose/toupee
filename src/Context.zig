@@ -19,6 +19,8 @@ pub const ErrorDetail = struct {
     kind: Kind = .none,
     suggestion: []const u8 = "",
     include_stack_len: u8 = 0,
+    /// Most recent 16 include frames for error context. Smaller than max_depth
+    /// by design: error messages only need the innermost frames.
     include_stack_buf: [16]IncludeEntry = [_]IncludeEntry{.{}} ** 16,
 
     pub const Kind = enum {

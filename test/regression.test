@@ -1,0 +1,33 @@
+<!-- Regression tests: bugs that were found and must not recur. -->
+<!-- Each test documents a specific bug with a reference to the fix. -->
+
+<!-- test: single quote escaping consistency -->
+<!-- Fixed: html.appendEscaped now escapes single quotes consistently -->
+<!-- with transform.escapeTransform. Both use &#x27; for single quotes. -->
+<!-- in -->
+<t-var name="x" />
+<!-- context -->
+{"data": {"x": "it's a test"}}
+<!-- out -->
+it&#x27;s a test
+
+<!-- test: escape transform handles single quotes -->
+<!-- The explicit escape transform escapes single quotes correctly. -->
+<!-- Using t-raw to avoid double-escaping (t-var auto-escapes after transforms). -->
+<!-- in -->
+<t-raw name="x" transform="escape" />
+<!-- context -->
+{"data": {"x": "it's a test"}}
+<!-- out -->
+it&#x27;s a test
+
+<!-- test: levenshtein suggestion with long variable name -->
+<!-- Bug: levenshtein uses a [256]usize buffer. Known variable names -->
+<!-- over 255 characters get max distance and no suggestion. This is -->
+<!-- acceptable behavior but must not panic or produce wrong results. -->
+<!-- in -->
+<t-var name="a_very_long_variable_name_that_is_definitely_not_going_to_match_anything_in_the_context" />
+<!-- context -->
+{"data": {"a_very_long_variable_name_that_is_definitely_not_going_to_match_anything_in_the_contex": "found"}}
+<!-- error: UndefinedVariable -->
+<!-- error-kind: undefined_variable -->

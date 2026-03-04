@@ -30,6 +30,9 @@ const State = struct {
     registry: ?*const transform.Registry,
     strict: bool,
     debug: bool,
+    /// Error-reporting stack trace (most recent 16 frames). Intentionally smaller
+    /// than max_depth: deep nesting is allowed, but error messages only need the
+    /// innermost frames to be useful. Oldest frames are silently dropped.
     include_stack_buf: [16]Ctx.IncludeEntry,
     include_stack_len: u8,
 
@@ -180,7 +183,7 @@ fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out:
     };
 
     const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
-    const lc = computeLineCol(state.template_source, inc.source_pos);
+    const lc = h.computeLineCol(state.template_source, inc.source_pos);
     const child_state = state.pushInclude(inc.template, tmpl_content, lc.line);
     const tmpl_parse = Parser.parse(state.a, tmpl_content) catch return error.MalformedElement;
     const rendered = try renderNodes(child_state, tmpl_parse.nodes, &child_ctx, depth + 1);
@@ -215,7 +218,7 @@ fn resolveExtendChain(
         setRichError(state, ctx, source_pos, .template_not_found, initial_template);
         return error.TemplateNotFound;
     };
-    const lc = computeLineCol(state.template_source, source_pos);
+    const lc = h.computeLineCol(state.template_source, source_pos);
     var current_state = state.pushInclude(initial_template, current_source, lc.line);
 
     while (true) {
@@ -234,7 +237,7 @@ fn resolveExtendChain(
             setRichError(current_state, ctx, parent_ext.source_pos, .template_not_found, parent_ext.template);
             return error.TemplateNotFound;
         };
-        const ext_lc = computeLineCol(current_state.template_source, parent_ext.source_pos);
+        const ext_lc = h.computeLineCol(current_state.template_source, parent_ext.source_pos);
         current_state = current_state.pushInclude(parent_ext.template, current_source, ext_lc.line);
     }
 }
@@ -497,22 +500,8 @@ fn appendValueDebug(a: Allocator, out: *std.ArrayList(u8), value: V.Value) Rende
 
 // ---- Error helpers ----
 
-const LineCol = struct { line: usize, col: usize };
 
-fn computeLineCol(source: []const u8, pos: usize) LineCol {
-    if (source.len == 0) return .{ .line = 0, .col = 0 };
-    var line: usize = 1;
-    var col: usize = 1;
-    for (source[0..@min(pos, source.len)]) |c| {
-        if (c == '\n') {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
-    }
-    return .{ .line = line, .col = col };
-}
+
 
 fn extractSourceLine(source: []const u8, pos: usize) []const u8 {
     if (source.len == 0) return "";
@@ -533,13 +522,13 @@ fn computeCaretLen(source: []const u8, pos: usize) usize {
 
 fn setRichError(state: State, ctx: *Context, pos: usize, kind: Ctx.ErrorDetail.Kind, name: []const u8) void {
     const ed = ctx.err_detail orelse return;
-    const lc = computeLineCol(state.template_source, pos);
+    const lc = h.computeLineCol(state.template_source, pos);
     ed.* = .{
         .kind = kind,
         .message = name,
         .source_file = state.template_name,
         .line = lc.line,
-        .column = lc.col,
+        .column = lc.column,
         .source_line = extractSourceLine(state.template_source, pos),
         .caret_len = computeCaretLen(state.template_source, pos),
         .include_stack_len = state.include_stack_len,
@@ -577,12 +566,16 @@ fn findClosestKey(name: []const u8, map: V.Map) []const u8 {
     return best;
 }
 
+/// Stack-allocated Levenshtein distance. Returns std.math.maxInt(usize) when
+/// either string exceeds the row buffer (255 chars). This is only used for
+/// typo suggestions where a threshold of 3 makes long-name comparisons moot.
 fn levenshtein(a_str: []const u8, b_str: []const u8) usize {
+    const max_len = 255;
+    if (a_str.len > max_len or b_str.len > max_len) return std.math.maxInt(usize);
     if (a_str.len == 0) return b_str.len;
     if (b_str.len == 0) return a_str.len;
-    if (b_str.len >= 256) return b_str.len;
 
-    var row: [256]usize = undefined;
+    var row: [max_len + 1]usize = undefined;
     for (0..b_str.len + 1) |j| row[j] = j;
 
     for (a_str) |a_ch| {
@@ -719,21 +712,21 @@ test "render comment produces no output" {
 }
 
 test "computeLineCol single line" {
-    const lc = computeLineCol("hello world", 6);
+    const lc = h.computeLineCol("hello world", 6);
     try testing.expectEqual(@as(usize, 1), lc.line);
-    try testing.expectEqual(@as(usize, 7), lc.col);
+    try testing.expectEqual(@as(usize, 7), lc.column);
 }
 
 test "computeLineCol multi line" {
-    const lc = computeLineCol("abc\ndef\nghi", 8);
+    const lc = h.computeLineCol("abc\ndef\nghi", 8);
     try testing.expectEqual(@as(usize, 3), lc.line);
-    try testing.expectEqual(@as(usize, 1), lc.col);
+    try testing.expectEqual(@as(usize, 1), lc.column);
 }
 
 test "computeLineCol empty source" {
-    const lc = computeLineCol("", 0);
-    try testing.expectEqual(@as(usize, 0), lc.line);
-    try testing.expectEqual(@as(usize, 0), lc.col);
+    const lc = h.computeLineCol("", 0);
+    try testing.expectEqual(@as(usize, 1), lc.line);
+    try testing.expectEqual(@as(usize, 1), lc.column);
 }
 
 test "extractSourceLine" {
