@@ -4,11 +4,14 @@ const V = @import("Value.zig");
 
 pub const Value = V.Value;
 
+/// One frame in the include stack trace. Used by ErrorDetail for error reporting.
 pub const IncludeEntry = struct {
     template: []const u8 = "",
     line: usize = 0,
 };
 
+/// Rich error context populated by the Renderer (or Parser) on failure. Caller must allocate
+/// and pass a pointer via `ctx.err_detail`. Fields are only valid after a render or parse error.
 pub const ErrorDetail = struct {
     line: usize = 0,
     column: usize = 0,
@@ -32,10 +35,12 @@ pub const ErrorDetail = struct {
         duplicate_slot,
     };
 
+    /// Returns the include stack slice (innermost frames first).
     pub fn includeStack(self: *const ErrorDetail) []const IncludeEntry {
         return self.include_stack_buf[0..self.include_stack_len];
     }
 
+    /// Produces a human-readable error message with location and include stack.
     pub fn formatError(self: *const ErrorDetail, a: Allocator) Allocator.Error![]const u8 {
         var buf: std.ArrayListUnmanaged(u8) = .{};
         try writeHeader(a, &buf, self.kind, self.message, self.source_file);
@@ -142,17 +147,23 @@ fn appendUsize(a: Allocator, buf: *std.ArrayListUnmanaged(u8), value: usize) All
     try buf.appendSlice(a, s);
 }
 
+/// Render context holding data, attributes, slots, and optional error detail. `data` is caller-owned;
+/// the Renderer copies data on entry to child contexts, so the original is safe to reuse across render calls.
 pub const Context = struct {
+    /// Nested variable tree. Caller populates; Renderer copies for child contexts.
     data: V.Map = .{},
     attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{},
     slots: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+    /// If non-null, populated on render/parse error. Caller allocates and passes; fields valid only after error.
     err_detail: ?*ErrorDetail = null,
 
+    /// Looks up a dot-separated path in `data` (e.g. `page.title`).
     pub fn resolve(self: *const Context, path: []const u8) ?Value {
         const root: Value = .{ .map = self.data };
         return root.resolve(path);
     }
 
+    /// Resolves path and returns the string payload, or null if not found or not a string.
     pub fn resolveString(self: *const Context, path: []const u8) ?[]const u8 {
         const val = self.resolve(path) orelse return null;
         return val.asString();
@@ -189,6 +200,7 @@ pub const Context = struct {
     }
 };
 
+/// Maps template names to source strings. Used by `<t-include>` and `<t-extend>` at render time.
 pub const Resolver = struct {
     templates: std.StringArrayHashMapUnmanaged([]const u8) = .{},
 
@@ -205,6 +217,7 @@ pub const Resolver = struct {
     }
 };
 
+/// Error set returned by rendering operations.
 pub const RenderError = error{
     MalformedElement,
     TemplateNotFound,

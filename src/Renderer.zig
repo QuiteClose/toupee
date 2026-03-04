@@ -13,6 +13,8 @@ const indent_mod = @import("indent.zig");
 const Parser = @import("Parser.zig");
 const diagnostic = @import("diagnostic.zig");
 
+/// Configuration for rendering: max include/extend depth, template metadata for errors,
+/// transform registry, strict mode, and debug flag for context dumps.
 pub const Options = struct {
     max_depth: usize = 50,
     template_name: []const u8 = "<input>",
@@ -52,6 +54,7 @@ const State = struct {
     }
 };
 
+/// Renders []Node IR with the given context and resolver. Main entry point for the renderer.
 pub fn render(
     caller_a: Allocator,
     nodes: []const Node,

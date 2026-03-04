@@ -1,5 +1,7 @@
 const std = @import("std");
 
+/// IR node. All node slices (children, body, defines, etc.) have lifetimes tied to the arena allocator
+/// from ParseResult; they are read-only after parsing.
 pub const Node = union(enum) {
     text: []const u8,
     variable: Variable,
@@ -16,6 +18,7 @@ pub const Node = union(enum) {
     attr_output: AttrOutput,
 };
 
+/// `<t-var>` or `<t-raw>` output with optional transform chain and default body.
 pub const Variable = struct {
     name: []const u8,
     transform: []const TransformStep = &.{},
@@ -24,6 +27,7 @@ pub const Variable = struct {
     source_pos: usize = 0,
 };
 
+/// `<t-let>` capture: renders body and stores result in a variable.
 pub const LetBinding = struct {
     name: []const u8,
     transform: []const TransformStep = &.{},
@@ -31,50 +35,60 @@ pub const LetBinding = struct {
     source_pos: usize = 0,
 };
 
+/// `<t-attr>` output: emits an include attribute value.
 pub const AttrOutput = struct {
     name: []const u8,
     source_pos: usize = 0,
 };
 
+/// `<t-slot>` insertion point with optional default content.
 pub const Slot = struct {
     name: []const u8,
     default_body: []const Node = &.{},
     source_pos: usize = 0,
 };
 
+/// `<t-include>` component inclusion with optional attributes.
 pub const Include = struct {
     template: []const u8,
     attrs: []const Attr = &.{},
     defines: []const Define = &.{},
     anonymous_body: []const Node = &.{},
     anonymous_body_source: []const u8 = "",
+    /// When true, the child context starts empty and is populated only from `context_bindings`.
     isolated: bool = false,
+    /// Used when `isolated` is true: maps parent data paths to child data keys (supports `as` renaming).
     context_bindings: []const ContextBinding = &.{},
     source_pos: usize = 0,
 };
 
+/// Maps a parent data path to a child data key. Supports `as` renaming (e.g. `page.title` → `title`).
 pub const ContextBinding = struct {
     path: []const u8,
     key: []const u8,
 };
 
+/// `<t-extend>` template inheritance with slot definitions.
 pub const Extend = struct {
     template: []const u8,
     defines: []const Define = &.{},
     source_pos: usize = 0,
 };
 
+/// `<t-if>` / `<t-elif>` / `<t-else>` conditional branches.
 pub const Conditional = struct {
     branches: []const Branch,
     else_body: []const Node = &.{},
     source_pos: usize = 0,
 };
 
+/// One condition + body pair within a Conditional.
 pub const Branch = struct {
     condition: Condition,
     body: []const Node,
 };
 
+/// Condition source (variable, attr, slot) and comparison type.
 pub const Condition = struct {
     source: Source,
     name: []const u8,
@@ -94,6 +108,7 @@ pub const Condition = struct {
     };
 };
 
+/// `<t-for>` iteration over a collection with optional sort, limit, offset, and alias.
 pub const Loop = struct {
     item_prefix: []const u8,
     collection: []const u8,
@@ -107,32 +122,38 @@ pub const Loop = struct {
     source_pos: usize = 0,
 };
 
+/// Tag with `t-var:attr` or `t-attr:attr` bindings (e.g. `<a t-var:href="url">`).
 pub const BoundTag = struct {
     segments: []const Segment,
     source_pos: usize = 0,
 };
 
+/// One segment of a BoundTag: literal text or a variable/attr binding.
 pub const Segment = union(enum) {
     literal: []const u8,
     binding: Binding,
 };
 
+/// Binds an HTML attribute to a variable or include attribute.
 pub const Binding = struct {
     html_attr: []const u8,
     ref_name: []const u8,
     is_var: bool,
 };
 
+/// One step in a transform chain (e.g. `upper`, `truncate:50`).
 pub const TransformStep = struct {
     name: []const u8,
     args: []const []const u8 = &.{},
 };
 
+/// Include attribute: name and value passed to the included template.
 pub const Attr = struct {
     name: []const u8,
     value: []const u8,
 };
 
+/// `<t-define>` slot fill: name and body for a named or anonymous slot.
 pub const Define = struct {
     name: []const u8,
     body: []const Node,

@@ -2,8 +2,11 @@ const std = @import("std");
 const Ctx = @import("Context.zig");
 const h = @import("html.zig");
 
+/// Re-export of Context.ErrorDetail for use by diagnostic utilities.
 pub const ErrorDetail = Ctx.ErrorDetail;
 
+/// Validation or parse/render error summary. Returned by Engine.validate().
+/// Lifetime is tied to the allocator passed to validate().
 pub const Diagnostic = struct {
     template: []const u8,
     kind: Kind,
@@ -14,6 +17,8 @@ pub const Diagnostic = struct {
     pub const Kind = enum { err, warning };
 };
 
+/// Populates an ErrorDetail with line/column, source line excerpt, and caret length
+/// from a byte position in source text. No-op if ed is null.
 pub fn setError(
     ed: ?*ErrorDetail,
     source: []const u8,
@@ -35,6 +40,7 @@ pub fn setError(
     };
 }
 
+/// Returns the line of source text containing the given byte position.
 pub fn extractSourceLine(source: []const u8, pos: usize) []const u8 {
     if (source.len == 0) return "";
     const clamped = @min(pos, source.len - 1);
@@ -45,6 +51,8 @@ pub fn extractSourceLine(source: []const u8, pos: usize) []const u8 {
     return source[start..end];
 }
 
+/// Returns the character length for caret highlighting at pos. For `<tag>` elements,
+/// spans the full tag; otherwise returns 1.
 pub fn computeCaretLen(source: []const u8, pos: usize) usize {
     if (pos >= source.len or source[pos] != '<') return 1;
     var i = pos + 1;

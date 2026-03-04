@@ -1,31 +1,60 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+/// Data context for template rendering: variables (dot-path resolution) and slots.
 pub const Context = @import("Context.zig").Context;
+/// Tagged union for template values: string, boolean, integer, list, map, nil.
 pub const Value = @import("Context.zig").Value;
+/// Maps template names to source strings for `<t-include>` and `<t-extend>`.
 pub const Resolver = @import("Context.zig").Resolver;
+/// Rich error context: line/column, source excerpt, template stack, typo suggestions.
 pub const ErrorDetail = @import("Context.zig").ErrorDetail;
+/// Resolved include entry for error reporting and debugging.
 pub const IncludeEntry = @import("Context.zig").IncludeEntry;
+/// Union of all render-time errors (undefined variable, template not found, etc.).
 pub const RenderError = @import("Context.zig").RenderError;
+/// Render options: template name, registry, strict mode, debug, max depth.
 pub const Options = @import("Renderer.zig").Options;
 
+/// Owned render output. `output` is allocated by the allocator passed to the render function.
+/// Call `deinit` to free; the allocator is stored for that purpose.
 pub const RenderResult = struct {
     output: []const u8,
     allocator: Allocator,
 
+    /// Frees `output` using the stored allocator.
     pub fn deinit(self: RenderResult) void {
         self.allocator.free(self.output);
     }
 };
 
+/// IR node types: tagged union for template elements (var, raw, if, for, extend, include, etc.).
 pub const Node = @import("Node.zig");
+/// Parses template source into `[]Node` IR.
 pub const Parser = @import("Parser.zig");
+/// Renders `[]Node` IR against a context to produce output.
 pub const Renderer = @import("Renderer.zig");
 
 const format = @import("format.zig");
+/// Transform registry and built-in transforms (upper, lower, truncate, etc.).
 pub const transform = @import("transform.zig");
+/// Validation diagnostic: template name, kind (err/warn), message.
 pub const Diagnostic = @import("diagnostic.zig").Diagnostic;
 
+/// Template engine with pre-parsed template cache and transform registry.
+///
+/// **Threading model -- two-phase usage:**
+///
+/// - **Setup phase** (mutable `*Engine`): call `addTemplate`, `removeTemplate`,
+///   `clearTemplates`, `registerTransform`. These mutate `cache` and `registry`
+///   and must not be called concurrently with rendering or with each other.
+///
+/// - **Serve phase** (immutable `*const Engine`): call `renderTemplate`,
+///   `renderTemplateToWriter`, `renderTemplateFormatted`, `render`,
+///   `renderToWriter`, `renderFormatted`, `renderFormattedToWriter`,
+///   `validate`. These take `*const Engine` and only read from `cache` and
+///   `registry`. They are safe to call concurrently from multiple threads
+///   because each call allocates its own arena and passes State by value.
 pub const Engine = struct {
     allocator: Allocator,
     registry: transform.Registry,
@@ -37,12 +66,14 @@ pub const Engine = struct {
         arena: std.heap.ArenaAllocator,
     };
 
+    /// Creates an engine with built-in transforms registered. Caller owns the returned engine.
     pub fn init(a: Allocator) !Engine {
         var reg: transform.Registry = .{};
         try reg.registerBuiltins(a);
         return .{ .allocator = a, .registry = reg };
     }
 
+    /// Frees all cached templates and the transform registry.
     pub fn deinit(self: *Engine) void {
         var it = self.cache.iterator();
         while (it.next()) |entry| {
@@ -53,10 +84,13 @@ pub const Engine = struct {
         self.registry.deinit(self.allocator);
     }
 
+    /// Registers a custom transform. Setup-phase only; not thread-safe.
     pub fn registerTransform(self: *Engine, name: []const u8, func: transform.TransformFn) !void {
         try self.registry.register(self.allocator, name, func);
     }
 
+    /// Parses `source` and caches the IR under `name`. Replaces existing entry if present.
+    /// Setup-phase only; not thread-safe.
     pub fn addTemplate(self: *Engine, name: []const u8, source: []const u8) !void {
         const duped = try self.allocator.dupe(u8, source);
         errdefer self.allocator.free(duped);
@@ -70,6 +104,8 @@ pub const Engine = struct {
         gop.value_ptr.* = .{ .nodes = result.nodes, .source = duped, .arena = result.arena };
     }
 
+    /// Renders a cached template by name. Uses pre-parsed IR; no parse cost per call.
+    /// Returns output owned by `a`; caller must free. Serve-phase; safe for concurrent use.
     pub fn renderTemplate(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
         const entry = self.cache.get(name) orelse return error.TemplateNotFound;
         var opts = options;
@@ -79,32 +115,41 @@ pub const Engine = struct {
         return Renderer.render(a, entry.nodes, ctx, resolver, opts);
     }
 
+    /// Renders raw template source. Parses `input` on every call; use `renderTemplate` for cached templates.
+    /// Returns output owned by `a`; caller must free. Serve-phase; safe for concurrent use.
     pub fn render(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
         var opts = options;
         opts.registry = &self.registry;
         return renderImpl(a, input, ctx, resolver, opts);
     }
 
+    /// Like `render` but returns a `RenderResult`; call `result.deinit()` to free output.
     pub fn renderOwned(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError!RenderResult {
         return .{ .output = try self.render(a, input, ctx, resolver, options), .allocator = a };
     }
 
+    /// Like `renderTemplate` but returns a `RenderResult`; call `result.deinit()` to free output.
     pub fn renderTemplateOwned(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError!RenderResult {
         return .{ .output = try self.renderTemplate(a, name, ctx, resolver, options), .allocator = a };
     }
 
+    /// Renders raw source then applies pretty-print (re-indentation of existing newlines, no new ones inserted).
+    /// Returns output owned by `a`; caller must free.
     pub fn renderFormatted(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
         const raw = try self.render(a, input, ctx, resolver, options);
         defer a.free(raw);
         return format.prettyPrint(a, raw);
     }
 
+    /// Renders cached template then applies pretty-print (re-indentation of existing newlines, no new ones inserted).
+    /// Returns output owned by `a`; caller must free.
     pub fn renderTemplateFormatted(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
         const raw = try self.renderTemplate(a, name, ctx, resolver, options);
         defer a.free(raw);
         return format.prettyPrint(a, raw);
     }
 
+    /// Removes a template from the cache. No-op if not present. Setup-phase only; not thread-safe.
     pub fn removeTemplate(self: *Engine, name: []const u8) void {
         if (self.cache.fetchSwapRemove(name)) |entry| {
             self.allocator.free(entry.value.source);
@@ -112,6 +157,7 @@ pub const Engine = struct {
         }
     }
 
+    /// Empties the template cache. Setup-phase only; not thread-safe.
     pub fn clearTemplates(self: *Engine) void {
         var it = self.cache.iterator();
         while (it.next()) |entry| {
@@ -148,9 +194,9 @@ pub const Engine = struct {
         try writer.writeAll(result);
     }
 
-    /// Walks all cached templates and reports problems (missing includes/extends,
-    /// circular extend chains). Call after loading all templates and before
-    /// serving traffic. The returned slice is owned by `a`.
+    /// Walks cached template IR and reports problems (missing includes/extends, circular extend chains).
+    /// Checks both engine cache and resolver. Call after loading all templates and before serving.
+    /// Returns diagnostics owned by `a`; caller must free.
     pub fn validate(self: *const Engine, a: Allocator, resolver: *const Resolver) ![]const Diagnostic {
         var diags: std.ArrayListUnmanaged(Diagnostic) = .{};
         errdefer diags.deinit(a);
@@ -214,6 +260,9 @@ pub const Engine = struct {
     }
 };
 
+/// One-shot render: parses raw source each time and renders. No engine required.
+/// If `options.registry` is null, a temporary registry with built-ins is used.
+/// Returns output owned by `a`; caller must free.
 pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
     if (options.registry != null) return renderImpl(a, input, ctx, resolver, options);
     var reg: transform.Registry = .{};
@@ -224,6 +273,8 @@ pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *c
     return renderImpl(a, input, ctx, resolver, opts);
 }
 
+/// One-shot render with pretty-print (re-indentation of existing newlines, no new ones inserted).
+/// Returns output owned by `a`; caller must free.
 pub fn renderFormatted(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
     const raw = try render(a, input, ctx, resolver, options);
     defer a.free(raw);

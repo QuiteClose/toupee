@@ -7,6 +7,7 @@ const indent_mod = @import("indent.zig");
 const diagnostic = @import("diagnostic.zig");
 const ErrorDetail = diagnostic.ErrorDetail;
 
+/// Errors that may occur during template parsing.
 pub const ParseError = error{
     MalformedElement,
     DuplicateSlotDefinition,
@@ -16,6 +17,8 @@ pub const ParseError = error{
     UndefinedVariable,
 };
 
+/// Optional parameters for parse(). Pass err_detail to receive rich error context;
+/// template_name is used in error messages.
 pub const ParseOptions = struct {
     err_detail: ?*ErrorDetail = null,
     template_name: []const u8 = "<input>",
@@ -32,10 +35,13 @@ const ParseState = struct {
     }
 };
 
+/// Result of parsing. Owns the arena that holds all parsed nodes. Caller must call
+/// deinit() when done, or manage the arena externally.
 pub const ParseResult = struct {
     nodes: []const Node,
     arena: std.heap.ArenaAllocator,
 
+    /// Frees the arena and all parsed nodes.
     pub fn deinit(self: *ParseResult) void {
         self.arena.deinit();
     }
@@ -51,6 +57,7 @@ fn closeTag(comptime name: []const u8) []const u8 {
     return comptime "</" ++ prefix ++ name ++ ">";
 }
 
+/// Parses template source into a flat []Node IR. Main entry point for the parser.
 pub fn parse(child_allocator: Allocator, source: []const u8, options: ParseOptions) ParseError!ParseResult {
     var arena = std.heap.ArenaAllocator.init(child_allocator);
     errdefer arena.deinit();

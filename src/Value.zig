@@ -1,8 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+/// String-keyed map of Value. Keys are unique; key ownership follows the allocator that inserted them.
 pub const Map = std.StringArrayHashMapUnmanaged(Value);
 
+/// Tagged union of string, boolean, integer, list, map, or nil. `resolve()` navigates dot-separated
+/// paths through nested maps and list indices (e.g. `"page.title"`, `"items.0.name"`).
 pub const Value = union(enum) {
     string: []const u8,
     boolean: bool,
@@ -11,6 +14,7 @@ pub const Value = union(enum) {
     map: Map,
     nil,
 
+    /// Follows a dot-separated path (e.g. `"page.title"`, `"items.0"`) through nested maps and list indices.
     pub fn resolve(self: Value, path: []const u8) ?Value {
         if (path.len == 0) return self;
         return switch (self) {
@@ -35,6 +39,7 @@ pub const Value = union(enum) {
         };
     }
 
+    /// Type narrowing: returns the string payload if this Value is .string, else null.
     pub fn asString(self: Value) ?[]const u8 {
         return switch (self) {
             .string => |s| s,
@@ -42,6 +47,7 @@ pub const Value = union(enum) {
         };
     }
 
+    /// Type narrowing: returns the list payload if this Value is .list, else null.
     pub fn asList(self: Value) ?[]const Value {
         return switch (self) {
             .list => |l| l,
@@ -49,6 +55,7 @@ pub const Value = union(enum) {
         };
     }
 
+    /// Type narrowing: returns the map payload if this Value is .map, else null.
     pub fn asMap(self: Value) ?Map {
         return switch (self) {
             .map => |m| m,
@@ -97,6 +104,7 @@ pub const Value = union(enum) {
     }
 };
 
+/// Builds a Value.map from a slice of key-value pairs. Caller owns the returned map's memory.
 pub fn mapFromSlice(a: Allocator, pairs: []const struct { []const u8, Value }) !Value {
     var m: Map = .{};
     for (pairs) |pair| try m.put(a, pair[0], pair[1]);
