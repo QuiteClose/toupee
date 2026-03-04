@@ -43,7 +43,7 @@ test "fuzz renderer does not crash" {
             ctx.putData(a, "x", .{ .string = "val" }) catch return;
             ctx.putData(a, "y", .{ .string = "val2" }) catch return;
             var resolver: Ctx.Resolver = .{};
-            const rendered = Renderer.render(a, parse_result.nodes, &ctx, &resolver, .{});
+            const rendered = Renderer.render(a, parse_result.nodes, &ctx, resolver.loader(), .{});
             _ = rendered catch {};
         }
     }.run, .{ .corpus = &.{

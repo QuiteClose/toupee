@@ -7,6 +7,12 @@ pub const Context = @import("Context.zig").Context;
 pub const Value = @import("Context.zig").Value;
 /// Maps template names to source strings for `<t-include>` and `<t-extend>`.
 pub const Resolver = @import("Context.zig").Resolver;
+/// Runtime-polymorphic template source provider (fat-pointer pattern).
+pub const Loader = @import("Context.zig").Loader;
+/// Loads templates from a filesystem directory.
+pub const FileSystemLoader = @import("FileSystemLoader.zig");
+/// Tries multiple loaders in order, returning the first match.
+pub const ChainLoader = @import("ChainLoader.zig");
 /// Rich error context: line/column, source excerpt, template stack, typo suggestions.
 pub const ErrorDetail = @import("Context.zig").ErrorDetail;
 /// Resolved include entry for error reporting and debugging.
@@ -106,45 +112,45 @@ pub const Engine = struct {
 
     /// Renders a cached template by name. Uses pre-parsed IR; no parse cost per call.
     /// Returns output owned by `a`; caller must free. Serve-phase; safe for concurrent use.
-    pub fn renderTemplate(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
+    pub fn renderTemplate(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, loader: Loader, options: Options) RenderError![]const u8 {
         const entry = self.cache.get(name) orelse return error.TemplateNotFound;
         var opts = options;
         opts.registry = &self.registry;
         opts.template_name = name;
         opts.template_source = entry.source;
-        return Renderer.render(a, entry.nodes, ctx, resolver, opts);
+        return Renderer.render(a, entry.nodes, ctx, loader, opts);
     }
 
     /// Renders raw template source. Parses `input` on every call; use `renderTemplate` for cached templates.
     /// Returns output owned by `a`; caller must free. Serve-phase; safe for concurrent use.
-    pub fn render(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
+    pub fn render(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options) RenderError![]const u8 {
         var opts = options;
         opts.registry = &self.registry;
-        return renderImpl(a, input, ctx, resolver, opts);
+        return renderImpl(a, input, ctx, loader, opts);
     }
 
     /// Like `render` but returns a `RenderResult`; call `result.deinit()` to free output.
-    pub fn renderOwned(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError!RenderResult {
-        return .{ .output = try self.render(a, input, ctx, resolver, options), .allocator = a };
+    pub fn renderOwned(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options) RenderError!RenderResult {
+        return .{ .output = try self.render(a, input, ctx, loader, options), .allocator = a };
     }
 
     /// Like `renderTemplate` but returns a `RenderResult`; call `result.deinit()` to free output.
-    pub fn renderTemplateOwned(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError!RenderResult {
-        return .{ .output = try self.renderTemplate(a, name, ctx, resolver, options), .allocator = a };
+    pub fn renderTemplateOwned(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, loader: Loader, options: Options) RenderError!RenderResult {
+        return .{ .output = try self.renderTemplate(a, name, ctx, loader, options), .allocator = a };
     }
 
     /// Renders raw source then applies pretty-print (re-indentation of existing newlines, no new ones inserted).
     /// Returns output owned by `a`; caller must free.
-    pub fn renderFormatted(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
-        const raw = try self.render(a, input, ctx, resolver, options);
+    pub fn renderFormatted(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
+        const raw = try self.render(a, input, ctx, loader, options);
         defer a.free(raw);
         return format.prettyPrint(a, raw);
     }
 
     /// Renders cached template then applies pretty-print (re-indentation of existing newlines, no new ones inserted).
     /// Returns output owned by `a`; caller must free.
-    pub fn renderTemplateFormatted(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
-        const raw = try self.renderTemplate(a, name, ctx, resolver, options);
+    pub fn renderTemplateFormatted(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, loader: Loader, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
+        const raw = try self.renderTemplate(a, name, ctx, loader, options);
         defer a.free(raw);
         return format.prettyPrint(a, raw);
     }
@@ -170,37 +176,37 @@ pub const Engine = struct {
     /// Renders a cached template, streaming output to `writer` as each top-level node completes.
     /// If the writer fails mid-write, partial output may have been written.
     /// Use a buffered writer if atomicity is needed.
-    pub fn renderTemplateToWriter(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+    pub fn renderTemplateToWriter(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, loader: Loader, options: Options, writer: anytype) !void {
         const entry = self.cache.get(name) orelse return error.TemplateNotFound;
         var opts = options;
         opts.registry = &self.registry;
         opts.template_name = name;
         opts.template_source = entry.source;
-        try Renderer.renderToWriter(a, entry.nodes, ctx, resolver, opts, writer);
+        try Renderer.renderToWriter(a, entry.nodes, ctx, loader, opts, writer);
     }
 
     /// Renders raw template source, streaming output to `writer` as each top-level node completes.
     /// If the writer fails mid-write, partial output may have been written.
     /// Use a buffered writer if atomicity is needed.
-    pub fn renderToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+    pub fn renderToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options, writer: anytype) !void {
         var opts = options;
         opts.registry = &self.registry;
-        try renderImplToWriter(a, input, ctx, resolver, opts, writer);
+        try renderImplToWriter(a, input, ctx, loader, opts, writer);
     }
 
     /// Renders raw template source with pretty-printing and writes to `writer`.
     /// If the writer fails mid-write, partial output may have been written.
     /// Use a buffered writer if atomicity is needed.
-    pub fn renderFormattedToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
-        const result = try self.renderFormatted(a, input, ctx, resolver, options);
+    pub fn renderFormattedToWriter(self: *const Engine, a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options, writer: anytype) !void {
+        const result = try self.renderFormatted(a, input, ctx, loader, options);
         defer a.free(result);
         try writer.writeAll(result);
     }
 
     /// Walks cached template IR and reports problems (missing includes/extends, circular extend chains).
-    /// Checks both engine cache and resolver. Call after loading all templates and before serving.
+    /// Checks both engine cache and loader. Call after loading all templates and before serving.
     /// Returns diagnostics owned by `a`; caller must free.
-    pub fn validate(self: *const Engine, a: Allocator, resolver: *const Resolver) ![]const Diagnostic {
+    pub fn validate(self: *const Engine, a: Allocator, loader: Loader) ![]const Diagnostic {
         var diags: std.ArrayListUnmanaged(Diagnostic) = .{};
         errdefer diags.deinit(a);
 
@@ -208,7 +214,7 @@ pub const Engine = struct {
         while (cache_it.next()) |entry| {
             const tmpl_name = entry.key_ptr.*;
             const nodes = entry.value_ptr.nodes;
-            try collectDiagnostics(a, tmpl_name, nodes, self, resolver, &diags);
+            try collectDiagnostics(a, tmpl_name, nodes, self, loader, &diags);
         }
 
         return diags.toOwnedSlice(a);
@@ -219,44 +225,44 @@ pub const Engine = struct {
         tmpl_name: []const u8,
         nodes: []const Node.Node,
         engine: *const Engine,
-        resolver: *const Resolver,
+        loader: Loader,
         diags: *std.ArrayListUnmanaged(Diagnostic),
     ) !void {
         for (nodes) |node| {
             switch (node) {
                 .include => |inc| {
-                    if (engine.cache.get(inc.template) == null and resolver.get(inc.template) == null) {
+                    if (engine.cache.get(inc.template) == null and (try loader.getSource(a, inc.template)) == null) {
                         try diags.append(a, .{
                             .template = tmpl_name,
                             .kind = .err,
                             .message = inc.template,
                         });
                     }
-                    try collectDiagnostics(a, tmpl_name, inc.anonymous_body, engine, resolver, diags);
-                    for (inc.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, resolver, diags);
+                    try collectDiagnostics(a, tmpl_name, inc.anonymous_body, engine, loader, diags);
+                    for (inc.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, loader, diags);
                 },
                 .extend => |ext| {
-                    if (engine.cache.get(ext.template) == null and resolver.get(ext.template) == null) {
+                    if (engine.cache.get(ext.template) == null and (try loader.getSource(a, ext.template)) == null) {
                         try diags.append(a, .{
                             .template = tmpl_name,
                             .kind = .err,
                             .message = ext.template,
                         });
                     }
-                    for (ext.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, resolver, diags);
+                    for (ext.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, loader, diags);
                 },
                 .conditional => |cond| {
-                    for (cond.branches) |branch| try collectDiagnostics(a, tmpl_name, branch.body, engine, resolver, diags);
-                    try collectDiagnostics(a, tmpl_name, cond.else_body, engine, resolver, diags);
+                    for (cond.branches) |branch| try collectDiagnostics(a, tmpl_name, branch.body, engine, loader, diags);
+                    try collectDiagnostics(a, tmpl_name, cond.else_body, engine, loader, diags);
                 },
                 .loop => |loop| {
-                    try collectDiagnostics(a, tmpl_name, loop.body, engine, resolver, diags);
-                    try collectDiagnostics(a, tmpl_name, loop.else_body, engine, resolver, diags);
+                    try collectDiagnostics(a, tmpl_name, loop.body, engine, loader, diags);
+                    try collectDiagnostics(a, tmpl_name, loop.else_body, engine, loader, diags);
                 },
-                .slot => |slot| try collectDiagnostics(a, tmpl_name, slot.default_body, engine, resolver, diags),
-                .variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, resolver, diags),
-                .raw_variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, resolver, diags),
-                .let_binding => |lb| try collectDiagnostics(a, tmpl_name, lb.body, engine, resolver, diags),
+                .slot => |slot| try collectDiagnostics(a, tmpl_name, slot.default_body, engine, loader, diags),
+                .variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, loader, diags),
+                .raw_variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, loader, diags),
+                .let_binding => |lb| try collectDiagnostics(a, tmpl_name, lb.body, engine, loader, diags),
                 else => {},
             }
         }
@@ -376,37 +382,37 @@ fn comptimeContainsAttr(comptime tag: []const u8, comptime attr: []const u8) boo
 
 /// One-shot render: parses `input` each time, creates a temporary transform registry.
 /// Output is owned by the allocator `a`.
-pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
-    if (options.registry != null) return renderImpl(a, input, ctx, resolver, options);
+pub fn render(a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options) RenderError![]const u8 {
+    if (options.registry != null) return renderImpl(a, input, ctx, loader, options);
     var reg: transform.Registry = .{};
     try reg.registerBuiltins(a);
     defer reg.deinit(a);
     var opts = options;
     opts.registry = &reg;
-    return renderImpl(a, input, ctx, resolver, opts);
+    return renderImpl(a, input, ctx, loader, opts);
 }
 
 /// One-shot streaming render: parses `input`, then writes output to `writer` node-by-node.
 /// Creates a temporary transform registry each call. Output is not buffered in full.
-pub fn renderToWriter(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
-    if (options.registry != null) return renderImplToWriter(a, input, ctx, resolver, options, writer);
+pub fn renderToWriter(a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options, writer: anytype) !void {
+    if (options.registry != null) return renderImplToWriter(a, input, ctx, loader, options, writer);
     var reg: transform.Registry = .{};
     try reg.registerBuiltins(a);
     defer reg.deinit(a);
     var opts = options;
     opts.registry = &reg;
-    return renderImplToWriter(a, input, ctx, resolver, opts, writer);
+    return renderImplToWriter(a, input, ctx, loader, opts, writer);
 }
 
 /// One-shot render with pretty-print (re-indentation of existing newlines, no new ones inserted).
 /// Returns output owned by `a`; caller must free.
-pub fn renderFormatted(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
-    const raw = try render(a, input, ctx, resolver, options);
+pub fn renderFormatted(a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
+    const raw = try render(a, input, ctx, loader, options);
     defer a.free(raw);
     return format.prettyPrint(a, raw);
 }
 
-fn renderImpl(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
+fn renderImpl(a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options) RenderError![]const u8 {
     var parse_result = try Parser.parse(a, input, .{
         .err_detail = ctx.err_detail,
         .template_name = options.template_name,
@@ -414,10 +420,10 @@ fn renderImpl(a: Allocator, input: []const u8, ctx: *const Context, resolver: *c
     defer parse_result.deinit();
     var opts = options;
     if (opts.template_source.len == 0) opts.template_source = input;
-    return Renderer.render(a, parse_result.nodes, ctx, resolver, opts);
+    return Renderer.render(a, parse_result.nodes, ctx, loader, opts);
 }
 
-fn renderImplToWriter(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options, writer: anytype) !void {
+fn renderImplToWriter(a: Allocator, input: []const u8, ctx: *const Context, loader: Loader, options: Options, writer: anytype) !void {
     var parse_result = try Parser.parse(a, input, .{
         .err_detail = ctx.err_detail,
         .template_name = options.template_name,
@@ -425,7 +431,7 @@ fn renderImplToWriter(a: Allocator, input: []const u8, ctx: *const Context, reso
     defer parse_result.deinit();
     var opts = options;
     if (opts.template_source.len == 0) opts.template_source = input;
-    try Renderer.renderToWriter(a, parse_result.nodes, ctx, resolver, opts, writer);
+    try Renderer.renderToWriter(a, parse_result.nodes, ctx, loader, opts, writer);
 }
 
 // ---- Tests ----
@@ -439,7 +445,7 @@ test "engine render raw source" {
     try ctx.putData(testing.allocator, "name", .{ .string = "world" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try engine.render(testing.allocator, "Hello <t-var name=\"name\" />!", &ctx, &resolver, .{});
+    const result = try engine.render(testing.allocator, "Hello <t-var name=\"name\" />!", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("Hello world!", result);
 }
@@ -453,14 +459,14 @@ test "engine addTemplate and renderTemplate" {
     try ctx1.putData(testing.allocator, "name", .{ .string = "Alice" });
     defer ctx1.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const r1 = try engine.renderTemplate(testing.allocator, "greeting.html", &ctx1, &resolver, .{});
+    const r1 = try engine.renderTemplate(testing.allocator, "greeting.html", &ctx1, resolver.loader(), .{});
     defer testing.allocator.free(r1);
     try testing.expectEqualStrings("Hello Alice!", r1);
 
     var ctx2: Context = .{};
     try ctx2.putData(testing.allocator, "name", .{ .string = "Bob" });
     defer ctx2.data.deinit(testing.allocator);
-    const r2 = try engine.renderTemplate(testing.allocator, "greeting.html", &ctx2, &resolver, .{});
+    const r2 = try engine.renderTemplate(testing.allocator, "greeting.html", &ctx2, resolver.loader(), .{});
     defer testing.allocator.free(r2);
     try testing.expectEqualStrings("Hello Bob!", r2);
 }
@@ -470,7 +476,7 @@ test "engine renderTemplate not found" {
     defer engine.deinit();
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = engine.renderTemplate(testing.allocator, "missing.html", &ctx, &resolver, .{});
+    const result = engine.renderTemplate(testing.allocator, "missing.html", &ctx, resolver.loader(), .{});
     try testing.expectError(error.TemplateNotFound, result);
 }
 
@@ -490,7 +496,7 @@ test "engine custom transform via registry" {
     try ctx.putData(testing.allocator, "msg", .{ .string = "abc" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try engine.render(testing.allocator, "<t-var name=\"msg\" transform=\"reverse\" />", &ctx, &resolver, .{});
+    const result = try engine.render(testing.allocator, "<t-var name=\"msg\" transform=\"reverse\" />", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("cba", result);
 }
@@ -502,7 +508,7 @@ test "engine renderOwned returns RenderResult" {
     try ctx.putData(testing.allocator, "x", .{ .string = "42" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try engine.renderOwned(testing.allocator, "<t-var name=\"x\" />", &ctx, &resolver, .{});
+    const result = try engine.renderOwned(testing.allocator, "<t-var name=\"x\" />", &ctx, resolver.loader(), .{});
     defer result.deinit();
     try testing.expectEqualStrings("42", result.output);
 }
@@ -513,7 +519,7 @@ test "engine renderTemplateFormatted" {
     try engine.addTemplate("frag.html", "<div>\n<p>hello</p>\n</div>");
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try engine.renderTemplateFormatted(testing.allocator, "frag.html", &ctx, &resolver, .{});
+    const result = try engine.renderTemplateFormatted(testing.allocator, "frag.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("<div>\n  <p>hello</p>\n</div>", result);
 }
@@ -524,12 +530,12 @@ test "engine removeTemplate" {
     try engine.addTemplate("tmp.html", "hello");
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const r1 = try engine.renderTemplate(testing.allocator, "tmp.html", &ctx, &resolver, .{});
+    const r1 = try engine.renderTemplate(testing.allocator, "tmp.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(r1);
     try testing.expectEqualStrings("hello", r1);
 
     engine.removeTemplate("tmp.html");
-    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "tmp.html", &ctx, &resolver, .{}));
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "tmp.html", &ctx, resolver.loader(), .{}));
 }
 
 test "engine removeTemplate non-existent is no-op" {
@@ -546,7 +552,7 @@ test "engine removeTemplate then re-add" {
     try engine.addTemplate("page.html", "v2");
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try engine.renderTemplate(testing.allocator, "page.html", &ctx, &resolver, .{});
+    const result = try engine.renderTemplate(testing.allocator, "page.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("v2", result);
 }
@@ -559,8 +565,8 @@ test "engine clearTemplates" {
     engine.clearTemplates();
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "a.html", &ctx, &resolver, .{}));
-    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "b.html", &ctx, &resolver, .{}));
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "a.html", &ctx, resolver.loader(), .{}));
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "b.html", &ctx, resolver.loader(), .{}));
 }
 
 test "engine HTMX fragment pattern" {
@@ -572,7 +578,7 @@ test "engine HTMX fragment pattern" {
     try ctx.putData(testing.allocator, "status", .{ .string = "online" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
-    const result = try engine.renderTemplate(testing.allocator, "user-status.html", &ctx, &resolver, .{});
+    const result = try engine.renderTemplate(testing.allocator, "user-status.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("<div id=\"status\">Alice is online</div>", result);
 }
@@ -586,12 +592,12 @@ test "engine renderTemplateToWriter equivalence" {
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
 
-    const buffered = try engine.renderTemplate(testing.allocator, "greet.html", &ctx, &resolver, .{});
+    const buffered = try engine.renderTemplate(testing.allocator, "greet.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
 
     var out: std.ArrayListUnmanaged(u8) = .{};
     defer out.deinit(testing.allocator);
-    try engine.renderTemplateToWriter(testing.allocator, "greet.html", &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try engine.renderTemplateToWriter(testing.allocator, "greet.html", &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
     try testing.expectEqualStrings(buffered, out.items);
 }
 
@@ -604,12 +610,12 @@ test "engine renderToWriter equivalence" {
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
 
-    const buffered = try engine.render(testing.allocator, source, &ctx, &resolver, .{});
+    const buffered = try engine.render(testing.allocator, source, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
 
     var out: std.ArrayListUnmanaged(u8) = .{};
     defer out.deinit(testing.allocator);
-    try engine.renderToWriter(testing.allocator, source, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try engine.renderToWriter(testing.allocator, source, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
     try testing.expectEqualStrings(buffered, out.items);
 }
 
@@ -620,12 +626,12 @@ test "engine renderFormattedToWriter equivalence" {
     var ctx: Context = .{};
     var resolver: Resolver = .{};
 
-    const buffered = try engine.renderFormatted(testing.allocator, source, &ctx, &resolver, .{});
+    const buffered = try engine.renderFormatted(testing.allocator, source, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
 
     var out: std.ArrayListUnmanaged(u8) = .{};
     defer out.deinit(testing.allocator);
-    try engine.renderFormattedToWriter(testing.allocator, source, &ctx, &resolver, .{}, out.writer(testing.allocator));
+    try engine.renderFormattedToWriter(testing.allocator, source, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
     try testing.expectEqualStrings(buffered, out.items);
 }
 
@@ -634,7 +640,7 @@ test "engine validate catches missing include" {
     defer engine.deinit();
     try engine.addTemplate("page.html", "<t-include template=\"missing.html\" />");
     var resolver: Resolver = .{};
-    const diags = try engine.validate(testing.allocator, &resolver);
+    const diags = try engine.validate(testing.allocator, resolver.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 1), diags.len);
     try testing.expectEqualStrings("missing.html", diags[0].message);
@@ -647,7 +653,7 @@ test "engine validate catches missing extend" {
     defer engine.deinit();
     try engine.addTemplate("child.html", "<t-extend template=\"ghost.html\"><t-define slot=\"main\">hi</t-define></t-extend>");
     var resolver: Resolver = .{};
-    const diags = try engine.validate(testing.allocator, &resolver);
+    const diags = try engine.validate(testing.allocator, resolver.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 1), diags.len);
     try testing.expectEqualStrings("ghost.html", diags[0].message);
@@ -659,7 +665,7 @@ test "engine validate passes when templates exist in cache" {
     try engine.addTemplate("base.html", "<t-slot name=\"main\" />");
     try engine.addTemplate("page.html", "<t-extend template=\"base.html\"><t-define slot=\"main\">content</t-define></t-extend>");
     var resolver: Resolver = .{};
-    const diags = try engine.validate(testing.allocator, &resolver);
+    const diags = try engine.validate(testing.allocator, resolver.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 0), diags.len);
 }
@@ -671,7 +677,7 @@ test "engine validate passes when templates exist in resolver" {
     var resolver: Resolver = .{};
     try resolver.put(testing.allocator, "nav.html", "<nav>links</nav>");
     defer resolver.deinit(testing.allocator);
-    const diags = try engine.validate(testing.allocator, &resolver);
+    const diags = try engine.validate(testing.allocator, resolver.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 0), diags.len);
 }
@@ -681,7 +687,7 @@ test "engine validate finds nested missing include" {
     defer engine.deinit();
     try engine.addTemplate("page.html", "<t-if var=\"show\"><t-include template=\"deep.html\" /></t-if>");
     var resolver: Resolver = .{};
-    const diags = try engine.validate(testing.allocator, &resolver);
+    const diags = try engine.validate(testing.allocator, resolver.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 1), diags.len);
     try testing.expectEqualStrings("deep.html", diags[0].message);
@@ -691,7 +697,7 @@ test "engine validate empty cache returns no diagnostics" {
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
     var resolver: Resolver = .{};
-    const diags = try engine.validate(testing.allocator, &resolver);
+    const diags = try engine.validate(testing.allocator, resolver.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 0), diags.len);
 }
@@ -703,7 +709,7 @@ test "engine addTemplate replaces existing" {
     try engine.addTemplate("page.html", "v2");
     var ctx: Context = .{};
     var resolver: Resolver = .{};
-    const result = try engine.renderTemplate(testing.allocator, "page.html", &ctx, &resolver, .{});
+    const result = try engine.renderTemplate(testing.allocator, "page.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("v2", result);
 }
@@ -727,11 +733,14 @@ test {
     _ = @import("test_runner.zig");
     _ = @import("indent.zig");
     _ = @import("format.zig");
+    _ = @import("Context.zig");
     _ = @import("Node.zig");
     _ = @import("Parser.zig");
     _ = @import("Renderer.zig");
     _ = @import("Value.zig");
     _ = @import("transform.zig");
+    _ = @import("FileSystemLoader.zig");
+    _ = @import("ChainLoader.zig");
     _ = @import("fuzz.zig");
     _ = @import("bench.zig");
 }

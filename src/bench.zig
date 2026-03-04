@@ -76,7 +76,7 @@ fn benchRender(a: std.mem.Allocator, nodes: []const @import("Node.zig").Node, ct
     var resolver: Ctx.Resolver = .{};
     var timer = try std.time.Timer.start();
     for (0..iterations) |_| {
-        const result = try Renderer.render(a, nodes, ctx, &resolver, .{});
+        const result = try Renderer.render(a, nodes, ctx, resolver.loader(), .{});
         a.free(result);
     }
     const elapsed = timer.read();
@@ -95,7 +95,7 @@ fn benchCachedRender(a: std.mem.Allocator, ctx: *const Ctx.Context) !void {
     var resolver: Ctx.Resolver = .{};
     var timer = try std.time.Timer.start();
     for (0..iterations) |_| {
-        const result = try engine.renderTemplate(a, "bench.html", ctx, &resolver, .{});
+        const result = try engine.renderTemplate(a, "bench.html", ctx, resolver.loader(), .{});
         a.free(result);
     }
     const elapsed = timer.read();
@@ -111,7 +111,7 @@ fn benchFullPipeline(a: std.mem.Allocator, ctx: *const Ctx.Context) !void {
     var resolver: Ctx.Resolver = .{};
     var timer = try std.time.Timer.start();
     for (0..iterations) |_| {
-        const result = try toupee.render(a, template_source, ctx, &resolver, .{});
+        const result = try toupee.render(a, template_source, ctx, resolver.loader(), .{});
         a.free(result);
     }
     const elapsed = timer.read();

@@ -94,7 +94,7 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
             tc.expected_error_kind != null or tc.expected_error_message != null;
         if (has_detail) ctx.err_detail = &err_detail;
 
-        const result = toupee.render(a, template_input, &ctx, &resolver, .{});
+        const result = toupee.render(a, template_input, &ctx, resolver.loader(), .{});
         if (result) |_| {
             std.debug.print("    FAIL [{s}]: expected error '{s}' but got success\n", .{ tc.name, err_name });
             return error.TestExpectedError;
@@ -107,7 +107,7 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
             if (has_detail) try checkErrorDetail(tc, &err_detail);
         }
     } else if (tc.expected_output) |expected| {
-        const result = toupee.render(a, template_input, &ctx, &resolver, .{}) catch |err| {
+        const result = toupee.render(a, template_input, &ctx, resolver.loader(), .{}) catch |err| {
             std.debug.print("    FAIL [{s}]: unexpected error: {s}\n", .{ tc.name, @errorName(err) });
             return err;
         };

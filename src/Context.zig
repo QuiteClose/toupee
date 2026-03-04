@@ -200,6 +200,20 @@ pub const Context = struct {
     }
 };
 
+/// Runtime-polymorphic template source provider. Fat-pointer pattern matching `std.mem.Allocator`.
+/// Implementations: `Resolver.loader()` (in-memory map), `FileSystemLoader`, `ChainLoader`.
+pub const Loader = struct {
+    ptr: *const anyopaque,
+    getSourceFn: *const fn (*const anyopaque, Allocator, []const u8) Allocator.Error!?[]const u8,
+
+    /// Returns the template source for `name`, or null if not found.
+    /// The allocator is provided for implementations that need to read from external sources;
+    /// in-memory loaders may ignore it.
+    pub fn getSource(self: Loader, a: Allocator, name: []const u8) Allocator.Error!?[]const u8 {
+        return self.getSourceFn(self.ptr, a, name);
+    }
+};
+
 /// Maps template names to source strings. Used by `<t-include>` and `<t-extend>` at render time.
 pub const Resolver = struct {
     templates: std.StringArrayHashMapUnmanaged([]const u8) = .{},
@@ -215,6 +229,19 @@ pub const Resolver = struct {
     pub fn deinit(self: *Resolver, a: Allocator) void {
         self.templates.deinit(a);
     }
+
+    /// Returns a `Loader` backed by this resolver's in-memory map.
+    pub fn loader(self: *const Resolver) Loader {
+        return .{
+            .ptr = @ptrCast(self),
+            .getSourceFn = resolverGetSource,
+        };
+    }
+
+    fn resolverGetSource(ptr: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]const u8 {
+        const self: *const Resolver = @ptrCast(@alignCast(ptr));
+        return self.get(name);
+    }
 };
 
 /// Error set returned by rendering operations.
@@ -226,3 +253,33 @@ pub const RenderError = error{
     UndefinedVariable,
     OutOfMemory,
 };
+
+const testing = std.testing;
+
+test "Resolver.loader returns stored source" {
+    var resolver: Resolver = .{};
+    try resolver.put(testing.allocator, "page.html", "<p>hello</p>");
+    defer resolver.deinit(testing.allocator);
+
+    const l = resolver.loader();
+    const source = try l.getSource(testing.allocator, "page.html");
+    try testing.expectEqualStrings("<p>hello</p>", source.?);
+}
+
+test "Resolver.loader returns null for missing template" {
+    var resolver: Resolver = .{};
+    const l = resolver.loader();
+    const source = try l.getSource(testing.allocator, "missing.html");
+    try testing.expect(source == null);
+}
+
+test "Resolver.loader ignores allocator (zero-copy)" {
+    var resolver: Resolver = .{};
+    try resolver.put(testing.allocator, "x.html", "content");
+    defer resolver.deinit(testing.allocator);
+
+    const l = resolver.loader();
+    const s1 = try l.getSource(testing.allocator, "x.html");
+    const s2 = try l.getSource(testing.allocator, "x.html");
+    try testing.expect(s1.?.ptr == s2.?.ptr);
+}
