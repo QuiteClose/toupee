@@ -59,7 +59,7 @@ pub const Engine = struct {
     pub fn addTemplate(self: *Engine, name: []const u8, source: []const u8) !void {
         const duped = try self.allocator.dupe(u8, source);
         errdefer self.allocator.free(duped);
-        var result = try Parser.parse(self.allocator, duped);
+        var result = try Parser.parse(self.allocator, duped, .{ .template_name = name });
         errdefer result.deinit();
         const gop = try self.cache.getOrPut(self.allocator, name);
         if (gop.found_existing) {
@@ -116,7 +116,10 @@ pub fn renderFormatted(a: Allocator, input: []const u8, ctx: *const Context, res
 }
 
 fn renderImpl(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
-    var parse_result = try Parser.parse(a, input);
+    var parse_result = try Parser.parse(a, input, .{
+        .err_detail = ctx.err_detail,
+        .template_name = options.template_name,
+    });
     defer parse_result.deinit();
     var opts = options;
     if (opts.template_source.len == 0) opts.template_source = input;

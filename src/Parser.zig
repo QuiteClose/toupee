@@ -4,6 +4,8 @@ const N = @import("Node.zig");
 const Node = N.Node;
 const h = @import("html.zig");
 const indent_mod = @import("indent.zig");
+const diagnostic = @import("diagnostic.zig");
+const ErrorDetail = diagnostic.ErrorDetail;
 
 pub const ParseError = error{
     MalformedElement,
@@ -12,6 +14,22 @@ pub const ParseError = error{
     TemplateNotFound,
     CircularReference,
     UndefinedVariable,
+};
+
+pub const ParseOptions = struct {
+    err_detail: ?*ErrorDetail = null,
+    template_name: []const u8 = "<input>",
+};
+
+const ParseState = struct {
+    a: Allocator,
+    full_source: []const u8,
+    err_detail: ?*ErrorDetail,
+    template_name: []const u8,
+
+    fn fail(self: ParseState, pos: usize, kind: ErrorDetail.Kind, message: []const u8) void {
+        diagnostic.setError(self.err_detail, self.full_source, pos, kind, message, self.template_name);
+    }
 };
 
 pub const ParseResult = struct {
@@ -33,10 +51,16 @@ fn closeTag(comptime name: []const u8) []const u8 {
     return comptime "</" ++ prefix ++ name ++ ">";
 }
 
-pub fn parse(child_allocator: Allocator, source: []const u8) ParseError!ParseResult {
+pub fn parse(child_allocator: Allocator, source: []const u8, options: ParseOptions) ParseError!ParseResult {
     var arena = std.heap.ArenaAllocator.init(child_allocator);
     errdefer arena.deinit();
-    const a = arena.allocator();
+
+    const state: ParseState = .{
+        .a = arena.allocator(),
+        .full_source = source,
+        .err_detail = options.err_detail,
+        .template_name = options.template_name,
+    };
 
     const start = h.skipWhitespace(source);
     const rest = source[start..];
@@ -46,33 +70,38 @@ pub fn parse(child_allocator: Allocator, source: []const u8) ParseError!ParseRes
     if (std.mem.startsWith(u8, rest, extend_open) or
         std.mem.startsWith(u8, rest, extend_open_bare))
     {
-        const nodes = try parseExtend(a, rest, start);
+        const nodes = try parseExtend(state, rest, start);
         return .{ .nodes = nodes, .arena = arena };
     }
 
-    const nodes = try parseContent(a, source, 0);
+    const nodes = try parseContent(state, source, 0);
     return .{ .nodes = nodes, .arena = arena };
 }
 
-fn parseExtend(a: Allocator, input: []const u8, offset: usize) ParseError![]const Node {
-    const tag_end = h.findTagEnd(input) orelse return error.MalformedElement;
-    const tag = input[0 .. tag_end + 1];
-    const template_name = h.extractAttrValue(tag, "template") orelse
+fn parseExtend(state: ParseState, input: []const u8, offset: usize) ParseError![]const Node {
+    const tag_end = h.findTagEnd(input) orelse {
+        state.fail(offset, .malformed_element, "unclosed <t-extend> tag");
         return error.MalformedElement;
+    };
+    const tag = input[0 .. tag_end + 1];
+    const template_name = h.extractAttrValue(tag, "template") orelse {
+        state.fail(offset, .malformed_element, "missing 'template' attribute on <t-extend>");
+        return error.MalformedElement;
+    };
 
-    const result = try parseDefines(a, input[tag_end + 1 ..], offset + tag_end + 1);
+    const result = try parseDefines(state, input[tag_end + 1 ..], offset + tag_end + 1);
     var nodes: std.ArrayList(Node) = .{};
-    try nodes.append(a, .{ .extend = .{
+    try nodes.append(state.a, .{ .extend = .{
         .template = template_name,
         .defines = result.defines,
         .source_pos = offset,
     } });
-    return nodes.toOwnedSlice(a);
+    return nodes.toOwnedSlice(state.a);
 }
 
 // ---- Content parsing ----
 
-fn parseContent(a: Allocator, input: []const u8, offset: usize) ParseError![]const Node {
+fn parseContent(state: ParseState, input: []const u8, offset: usize) ParseError![]const Node {
     var nodes: std.ArrayList(Node) = .{};
     var text_start: usize = 0;
     var i: usize = 0;
@@ -83,14 +112,14 @@ fn parseContent(a: Allocator, input: []const u8, offset: usize) ParseError![]con
             continue;
         }
         if (matchElement(input[i..])) |elem| {
-            try flushText(a, &nodes, input, text_start, i);
-            i = try dispatchElement(a, input, i, &nodes, elem, offset);
+            try flushText(state, &nodes, input, text_start, i);
+            i = try dispatchElement(state, input, i, &nodes, elem, offset);
             text_start = i;
             continue;
         }
         if (findBoundTagEnd(input, i)) |end_offset| {
-            try flushText(a, &nodes, input, text_start, i);
-            try parseBoundTag(a, input[i .. i + end_offset + 1], &nodes, offset + i);
+            try flushText(state, &nodes, input, text_start, i);
+            try parseBoundTag(state, input[i .. i + end_offset + 1], &nodes, offset + i);
             i += end_offset + 1;
             text_start = i;
             continue;
@@ -98,12 +127,12 @@ fn parseContent(a: Allocator, input: []const u8, offset: usize) ParseError![]con
         i += 1;
     }
 
-    try flushText(a, &nodes, input, text_start, input.len);
-    return nodes.toOwnedSlice(a);
+    try flushText(state, &nodes, input, text_start, input.len);
+    return nodes.toOwnedSlice(state.a);
 }
 
 fn dispatchElement(
-    a: Allocator,
+    state: ParseState,
     input: []const u8,
     start: usize,
     nodes: *std.ArrayList(Node),
@@ -111,26 +140,32 @@ fn dispatchElement(
     offset: usize,
 ) ParseError!usize {
     return switch (elem) {
-        .t_var => parseVarOrRaw(a, input, start, nodes, true, offset),
-        .t_raw => parseVarOrRaw(a, input, start, nodes, false, offset),
-        .t_let => parseLet(a, input, start, nodes, offset),
+        .t_var => parseVarOrRaw(state, input, start, nodes, true, offset),
+        .t_raw => parseVarOrRaw(state, input, start, nodes, false, offset),
+        .t_let => parseLet(state, input, start, nodes, offset),
         .t_comment => blk: {
-            const pos = try parseComment(input, start);
-            try nodes.append(a, .comment);
+            const pos = try parseComment(state, input, start, offset);
+            try nodes.append(state.a, .comment);
             break :blk pos;
         },
         .t_debug => blk: {
             const rest = input[start..];
-            const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
-            try nodes.append(a, .debug);
+            const tag_end = h.findTagEnd(rest) orelse {
+                state.fail(offset + start, .malformed_element, "unclosed <t-debug> tag");
+                return error.MalformedElement;
+            };
+            try nodes.append(state.a, .debug);
             break :blk start + tag_end + 1;
         },
-        .t_attr => parseAttrOutput(a, input, start, nodes, offset),
-        .t_slot => parseSlot(a, input, start, nodes, offset),
-        .t_include => parseInclude(a, input, start, nodes, offset),
-        .t_for => parseFor(a, input, start, nodes, offset),
-        .t_if => parseConditional(a, input, start, nodes, offset),
-        .t_else, .t_elif => error.MalformedElement,
+        .t_attr => parseAttrOutput(state, input, start, nodes, offset),
+        .t_slot => parseSlot(state, input, start, nodes, offset),
+        .t_include => parseInclude(state, input, start, nodes, offset),
+        .t_for => parseFor(state, input, start, nodes, offset),
+        .t_if => parseConditional(state, input, start, nodes, offset),
+        .t_else, .t_elif => {
+            state.fail(offset + start, .malformed_element, "stray <t-else> or <t-elif> outside conditional or loop");
+            return error.MalformedElement;
+        },
     };
 }
 
@@ -175,20 +210,26 @@ fn matchElement(input: []const u8) ?Element {
     return null;
 }
 
-fn flushText(a: Allocator, nodes: *std.ArrayList(Node), input: []const u8, start: usize, end: usize) ParseError!void {
-    if (end > start) try nodes.append(a, .{ .text = input[start..end] });
+fn flushText(state: ParseState, nodes: *std.ArrayList(Node), input: []const u8, start: usize, end: usize) ParseError!void {
+    if (end > start) try nodes.append(state.a, .{ .text = input[start..end] });
 }
 
 // ---- Element parsers ----
 
-fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), escape: bool, offset: usize) ParseError!usize {
+fn parseVarOrRaw(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), escape: bool, offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed variable tag");
+        return error.MalformedElement;
+    };
     const is_self_closing = tag_end > 0 and rest[tag_end - 1] == '/';
     const tag = rest[0 .. tag_end + 1];
 
-    const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
-    const xform = try parseTransformAttr(a, tag);
+    const name = h.extractAttrValue(tag, "name") orelse {
+        state.fail(offset + start, .malformed_element, "missing 'name' attribute");
+        return error.MalformedElement;
+    };
+    const xform = try parseTransformAttr(state, tag);
 
     var consumed: usize = tag_end + 1;
     var default_body: []const Node = &.{};
@@ -197,9 +238,11 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
     if (!is_self_closing) {
         has_body = true;
         const close_str: []const u8 = if (escape) comptime closeTag("var") else comptime closeTag("raw");
-        const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], close_str) orelse
+        const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], close_str) orelse {
+            state.fail(offset + start, .malformed_element, "missing closing tag");
             return error.MalformedElement;
-        default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
+        };
+        default_body = try parseContent(state, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
         consumed = tag_end + 1 + close_pos + close_str.len;
     }
 
@@ -210,23 +253,31 @@ fn parseVarOrRaw(a: Allocator, input: []const u8, start: usize, nodes: *std.Arra
         .has_body = has_body,
         .source_pos = offset + start,
     };
-    try nodes.append(a, if (escape) .{ .variable = variable } else .{ .raw_variable = variable });
+    try nodes.append(state.a, if (escape) .{ .variable = variable } else .{ .raw_variable = variable });
     return start + consumed;
 }
 
-fn parseLet(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
+fn parseLet(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-let> tag");
+        return error.MalformedElement;
+    };
     const tag = rest[0 .. tag_end + 1];
-    const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
-    const xform = try parseTransformAttr(a, tag);
+    const name = h.extractAttrValue(tag, "name") orelse {
+        state.fail(offset + start, .malformed_element, "missing 'name' attribute on <t-let>");
+        return error.MalformedElement;
+    };
+    const xform = try parseTransformAttr(state, tag);
 
     const let_close = comptime closeTag("let");
-    const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], let_close) orelse
+    const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], let_close) orelse {
+        state.fail(offset + start, .malformed_element, "missing closing </t-let> tag");
         return error.MalformedElement;
-    const body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
+    };
+    const body = try parseContent(state, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
 
-    try nodes.append(a, .{ .let_binding = .{
+    try nodes.append(state.a, .{ .let_binding = .{
         .name = name,
         .transform = xform,
         .body = body,
@@ -235,69 +286,93 @@ fn parseLet(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
     return start + tag_end + 1 + close_pos + let_close.len;
 }
 
-fn parseComment(input: []const u8, start: usize) ParseError!usize {
+fn parseComment(state: ParseState, input: []const u8, start: usize, offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-comment> tag");
+        return error.MalformedElement;
+    };
     if (tag_end > 0 and rest[tag_end - 1] == '/') return start + tag_end + 1;
 
     const comment_close = comptime closeTag("comment");
-    const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], comment_close) orelse
+    const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], comment_close) orelse {
+        state.fail(offset + start, .malformed_element, "missing closing </t-comment> tag");
         return error.MalformedElement;
+    };
     return start + tag_end + 1 + close_pos + comment_close.len;
 }
 
-fn parseAttrOutput(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
+fn parseAttrOutput(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
-    const end_offset = std.mem.indexOf(u8, rest, "/>") orelse return error.MalformedElement;
+    const end_offset = std.mem.indexOf(u8, rest, "/>") orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-attr> tag");
+        return error.MalformedElement;
+    };
     const tag = rest[0 .. end_offset + 2];
-    const name = h.extractAttrValue(tag, "name") orelse return error.MalformedElement;
-    try nodes.append(a, .{ .attr_output = .{ .name = name, .source_pos = offset + start } });
+    const name = h.extractAttrValue(tag, "name") orelse {
+        state.fail(offset + start, .malformed_element, "missing 'name' attribute on <t-attr>");
+        return error.MalformedElement;
+    };
+    try nodes.append(state.a, .{ .attr_output = .{ .name = name, .source_pos = offset + start } });
     return start + end_offset + 2;
 }
 
-fn parseSlot(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
+fn parseSlot(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-slot> tag");
+        return error.MalformedElement;
+    };
     const is_self_closing = tag_end > 0 and rest[tag_end - 1] == '/';
     const tag = rest[0 .. tag_end + 1];
     const name = h.extractAttrValue(tag, "name") orelse "";
 
     if (is_self_closing) {
-        try nodes.append(a, .{ .slot = .{ .name = name, .source_pos = offset + start } });
+        try nodes.append(state.a, .{ .slot = .{ .name = name, .source_pos = offset + start } });
         return start + tag_end + 1;
     }
 
     const slot_close = comptime closeTag("slot");
-    const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], slot_close) orelse
+    const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], slot_close) orelse {
+        state.fail(offset + start, .malformed_element, "missing closing </t-slot> tag");
         return error.MalformedElement;
-    const default_body = try parseContent(a, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
+    };
+    const default_body = try parseContent(state, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
 
-    try nodes.append(a, .{ .slot = .{ .name = name, .default_body = default_body, .source_pos = offset + start } });
+    try nodes.append(state.a, .{ .slot = .{ .name = name, .default_body = default_body, .source_pos = offset + start } });
     return start + tag_end + 1 + close_pos + slot_close.len;
 }
 
-fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
+fn parseInclude(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-include> tag");
+        return error.MalformedElement;
+    };
     const is_self_closing = tag_end > 0 and rest[tag_end - 1] == '/';
     const tag = rest[0 .. tag_end + 1];
-    const tmpl_name = h.extractAttrValue(tag, "template") orelse return error.MalformedElement;
-    const attrs = try parseTagAttrList(a, tag);
+    const tmpl_name = h.extractAttrValue(tag, "template") orelse {
+        state.fail(offset + start, .malformed_element, "missing 'template' attribute on <t-include>");
+        return error.MalformedElement;
+    };
+    const attrs = try parseTagAttrList(state, tag);
 
     var consumed: usize = tag_end + 1;
     var result: DefineResult = .{};
 
     if (!is_self_closing) {
         const include_close = comptime closeTag("include");
-        const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], include_close) orelse
+        const close_pos = std.mem.indexOf(u8, rest[tag_end + 1 ..], include_close) orelse {
+            state.fail(offset + start, .malformed_element, "missing closing </t-include> tag");
             return error.MalformedElement;
+        };
         const raw_body = rest[tag_end + 1 .. tag_end + 1 + close_pos];
-        const strip = try indent_mod.stripCommonIndent(a, raw_body);
+        const strip = try indent_mod.stripCommonIndent(state.a, raw_body);
         consumed = tag_end + 1 + close_pos + include_close.len;
-        if (strip.slice.len > 0) result = try parseDefines(a, strip.slice, offset + start + tag_end + 1);
+        if (strip.slice.len > 0) result = try parseDefines(state, strip.slice, offset + start + tag_end + 1);
     }
 
-    try nodes.append(a, .{ .include = .{
+    try nodes.append(state.a, .{ .include = .{
         .template = tmpl_name,
         .attrs = attrs,
         .defines = result.defines,
@@ -308,21 +383,26 @@ fn parseInclude(a: Allocator, input: []const u8, start: usize, nodes: *std.Array
     return start + consumed;
 }
 
-fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
+fn parseFor(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-for> tag");
+        return error.MalformedElement;
+    };
     const tag = rest[0 .. tag_end + 1];
-    const attrs = try parseForAttrs(tag);
+    const attrs = try parseForAttrs(state, tag, offset + start);
 
     const body_start = start + tag_end + 1;
     const for_close = comptime closeTag("for");
-    const close_offset = h.findMatchingClose(input[body_start..], openTag("for"), for_close) orelse
+    const close_offset = h.findMatchingClose(input[body_start..], openTag("for"), for_close) orelse {
+        state.fail(offset + start, .malformed_element, "missing closing </t-for> tag");
         return error.MalformedElement;
+    };
     const full_body = input[body_start .. body_start + close_offset];
     const body_offset = offset + body_start;
     const split = splitForElse(full_body);
 
-    try nodes.append(a, .{ .loop = .{
+    try nodes.append(state.a, .{ .loop = .{
         .item_prefix = attrs.item_prefix,
         .collection = attrs.collection,
         .alias = attrs.alias,
@@ -330,8 +410,8 @@ fn parseFor(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList
         .order_desc = attrs.order_desc,
         .limit = attrs.limit,
         .offset = attrs.offset,
-        .body = try parseContent(a, split.body, body_offset),
-        .else_body = if (split.else_body) |eb| try parseContent(a, eb, body_offset + split.else_offset) else &.{},
+        .body = try parseContent(state, split.body, body_offset),
+        .else_body = if (split.else_body) |eb| try parseContent(state, eb, body_offset + split.else_offset) else &.{},
         .source_pos = offset + start,
     } });
     return body_start + close_offset + for_close.len;
@@ -408,11 +488,16 @@ const ForAttrs = struct {
     offset: ?usize,
 };
 
-fn parseForAttrs(tag: []const u8) ParseError!ForAttrs {
+fn parseForAttrs(state: ParseState, tag: []const u8, tag_offset: usize) ParseError!ForAttrs {
     const for_open = openTag("for");
-    const space = std.mem.indexOfPos(u8, tag, for_open.len, " ") orelse
+    const space = std.mem.indexOfPos(u8, tag, for_open.len, " ") orelse {
+        state.fail(tag_offset, .malformed_element, "missing item variable in <t-for>");
         return error.MalformedElement;
-    const in_tok = std.mem.indexOf(u8, tag, " in ") orelse return error.MalformedElement;
+    };
+    const in_tok = std.mem.indexOf(u8, tag, " in ") orelse {
+        state.fail(tag_offset, .malformed_element, "missing 'in' keyword in <t-for>");
+        return error.MalformedElement;
+    };
     const alias: ?[]const u8 = blk: {
         const as_tok = std.mem.indexOfPos(u8, tag, in_tok + 4, " as ") orelse break :blk null;
         const word = extractWord(tag, as_tok + 4);
@@ -424,8 +509,8 @@ fn parseForAttrs(tag: []const u8) ParseError!ForAttrs {
         .alias = alias,
         .sort_field = h.extractAttrValue(tag, "sort"),
         .order_desc = if (h.extractAttrValue(tag, "order")) |o| std.mem.eql(u8, o, "desc") else false,
-        .limit = try parseUintAttr(tag, "limit"),
-        .offset = try parseUintAttr(tag, "offset"),
+        .limit = try parseUintAttr(state, tag, "limit", tag_offset),
+        .offset = try parseUintAttr(state, tag, "offset", tag_offset),
     };
 }
 
@@ -435,20 +520,25 @@ fn extractWord(input: []const u8, start: usize) []const u8 {
     return input[start..end];
 }
 
-fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
+fn parseConditional(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(offset + start, .malformed_element, "unclosed <t-if> tag");
+        return error.MalformedElement;
+    };
     const if_tag = rest[0 .. tag_end + 1];
     const body_start = tag_end + 1;
 
     const if_close = comptime closeTag("if");
-    const close_pos = h.findMatchingClose(rest[body_start..], openTag("if"), if_close) orelse
+    const close_pos = h.findMatchingClose(rest[body_start..], openTag("if"), if_close) orelse {
+        state.fail(offset + start, .malformed_element, "missing closing </t-if> tag");
         return error.MalformedElement;
+    };
     const full_body = rest[body_start .. body_start + close_pos];
     const body_offset = offset + start + body_start;
-    const result = try parseBranches(a, if_tag, full_body, body_offset);
+    const result = try parseBranches(state, if_tag, full_body, body_offset);
 
-    try nodes.append(a, .{ .conditional = .{
+    try nodes.append(state.a, .{ .conditional = .{
         .branches = result.branches,
         .else_body = result.else_body,
         .source_pos = offset + start,
@@ -456,16 +546,16 @@ fn parseConditional(a: Allocator, input: []const u8, start: usize, nodes: *std.A
     return start + body_start + close_pos + if_close.len;
 }
 
-fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8, body_offset: usize) ParseError!struct {
+fn parseBranches(state: ParseState, if_tag: []const u8, full_body: []const u8, body_offset: usize) ParseError!struct {
     branches: []const N.Branch,
     else_body: []const Node,
 } {
     var branches: std.ArrayList(N.Branch) = .{};
     const first_sep = findConditionalSeparator(full_body, 0);
     const if_body_source = if (first_sep) |sep| full_body[0..sep.pos] else full_body;
-    try branches.append(a, .{
+    try branches.append(state.a, .{
         .condition = parseCondition(if_tag),
-        .body = try parseContent(a, if_body_source, body_offset),
+        .body = try parseContent(state, if_body_source, body_offset),
     });
 
     var else_body: []const Node = &.{};
@@ -473,16 +563,16 @@ fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8, body_o
         var cursor = first;
         while (true) {
             if (cursor.is_else) {
-                else_body = try parseContent(a, full_body[cursor.pos + cursor.tag_len ..], body_offset + cursor.pos + cursor.tag_len);
+                else_body = try parseContent(state, full_body[cursor.pos + cursor.tag_len ..], body_offset + cursor.pos + cursor.tag_len);
                 break;
             }
             const elif_tag = full_body[cursor.pos .. cursor.pos + cursor.tag_len];
             const next_start = cursor.pos + cursor.tag_len;
             const next_sep = findConditionalSeparator(full_body, next_start);
             const body_src = if (next_sep) |ns| full_body[next_start..ns.pos] else full_body[next_start..];
-            try branches.append(a, .{
+            try branches.append(state.a, .{
                 .condition = parseCondition(elif_tag),
-                .body = try parseContent(a, body_src, body_offset + next_start),
+                .body = try parseContent(state, body_src, body_offset + next_start),
             });
             if (next_sep) |ns| {
                 cursor = ns;
@@ -491,12 +581,12 @@ fn parseBranches(a: Allocator, if_tag: []const u8, full_body: []const u8, body_o
     }
 
     return .{
-        .branches = try branches.toOwnedSlice(a),
+        .branches = try branches.toOwnedSlice(state.a),
         .else_body = else_body,
     };
 }
 
-fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node), tag_offset: usize) ParseError!void {
+fn parseBoundTag(state: ParseState, tag: []const u8, nodes: *std.ArrayList(Node), tag_offset: usize) ParseError!void {
     var segments: std.ArrayList(N.Segment) = .{};
     var literal_start: usize = 0;
     var i: usize = 0;
@@ -504,9 +594,9 @@ fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node), tag
     while (i < tag.len) {
         if (i > 0 and tag[i] == ' ' and i + 1 < tag.len) {
             if (matchBinding(tag[i + 1 ..])) |b| {
-                if (i > literal_start) try segments.append(a, .{ .literal = tag[literal_start..i] });
+                if (i > literal_start) try segments.append(state.a, .{ .literal = tag[literal_start..i] });
                 const result = extractBinding(tag, i + 1, b);
-                try segments.append(a, result.segment);
+                try segments.append(state.a, result.segment);
                 i = result.end;
                 literal_start = i;
                 continue;
@@ -515,9 +605,9 @@ fn parseBoundTag(a: Allocator, tag: []const u8, nodes: *std.ArrayList(Node), tag
         i += 1;
     }
 
-    if (literal_start < tag.len) try segments.append(a, .{ .literal = tag[literal_start..] });
-    try nodes.append(a, .{ .bound_tag = .{
-        .segments = try segments.toOwnedSlice(a),
+    if (literal_start < tag.len) try segments.append(state.a, .{ .literal = tag[literal_start..] });
+    try nodes.append(state.a, .{ .bound_tag = .{
+        .segments = try segments.toOwnedSlice(state.a),
         .source_pos = tag_offset,
     } });
 }
@@ -556,7 +646,7 @@ const DefineResult = struct {
     anonymous_body_source: []const u8 = "",
 };
 
-fn parseDefines(a: Allocator, body: []const u8, body_offset: usize) ParseError!DefineResult {
+fn parseDefines(state: ParseState, body: []const u8, body_offset: usize) ParseError!DefineResult {
     const define_open = openTag("define");
     const define_close = comptime closeTag("define");
     var defines: std.ArrayList(N.Define) = .{};
@@ -566,24 +656,27 @@ fn parseDefines(a: Allocator, body: []const u8, body_offset: usize) ParseError!D
 
     while (i < body.len) {
         if (std.mem.startsWith(u8, body[i..], define_open)) {
-            const result = try parseSingleDefine(a, body[i..], define_close, body_offset + i);
+            const result = try parseSingleDefine(state, body[i..], define_close, body_offset + i);
             for (seen_names.items) |seen| {
-                if (std.mem.eql(u8, seen, result.name)) return error.DuplicateSlotDefinition;
+                if (std.mem.eql(u8, seen, result.name)) {
+                    state.fail(body_offset + i, .duplicate_slot, result.name);
+                    return error.DuplicateSlotDefinition;
+                }
             }
-            try seen_names.append(a, result.name);
-            try defines.append(a, result.define);
+            try seen_names.append(state.a, result.name);
+            try defines.append(state.a, result.define);
             i += result.consumed;
         } else {
-            try anon_parts.append(a, body[i]);
+            try anon_parts.append(state.a, body[i]);
             i += 1;
         }
     }
 
     const trimmed = std.mem.trim(u8, anon_parts.items, " \t\r\n");
     return .{
-        .defines = try defines.toOwnedSlice(a),
-        .anonymous_body = if (trimmed.len > 0) try parseContent(a, trimmed, body_offset) else &.{},
-        .anonymous_body_source = if (trimmed.len > 0) try a.dupe(u8, trimmed) else "",
+        .defines = try defines.toOwnedSlice(state.a),
+        .anonymous_body = if (trimmed.len > 0) try parseContent(state, trimmed, body_offset) else &.{},
+        .anonymous_body_source = if (trimmed.len > 0) try state.a.dupe(u8, trimmed) else "",
     };
 }
 
@@ -593,20 +686,27 @@ const ParsedDefine = struct {
     consumed: usize,
 };
 
-fn parseSingleDefine(a: Allocator, rest: []const u8, define_close: []const u8, define_offset: usize) ParseError!ParsedDefine {
-    const tag_end = h.findTagEnd(rest) orelse return error.MalformedElement;
+fn parseSingleDefine(state: ParseState, rest: []const u8, define_close: []const u8, define_offset: usize) ParseError!ParsedDefine {
+    const tag_end = h.findTagEnd(rest) orelse {
+        state.fail(define_offset, .malformed_element, "unclosed <t-define> tag");
+        return error.MalformedElement;
+    };
     const tag = rest[0 .. tag_end + 1];
     const name = h.extractAttrValue(tag, "name") orelse
-        h.extractAttrValue(tag, "slot") orelse
+        h.extractAttrValue(tag, "slot") orelse {
+        state.fail(define_offset, .malformed_element, "missing 'name' or 'slot' attribute on <t-define>");
         return error.MalformedElement;
+    };
     const content_start = tag_end + 1;
-    const close = std.mem.indexOf(u8, rest[content_start..], define_close) orelse
+    const close = std.mem.indexOf(u8, rest[content_start..], define_close) orelse {
+        state.fail(define_offset, .malformed_element, "missing closing </t-define> tag");
         return error.MalformedElement;
+    };
     const raw = rest[content_start .. content_start + close];
-    const stripped = try indent_mod.stripCommonIndent(a, raw);
-    const raw_source = try a.dupe(u8, stripped.slice);
+    const stripped = try indent_mod.stripCommonIndent(state.a, raw);
+    const raw_source = try state.a.dupe(u8, stripped.slice);
     return .{
-        .define = .{ .name = name, .body = try parseContent(a, stripped.slice, define_offset + content_start), .raw_source = raw_source },
+        .define = .{ .name = name, .body = try parseContent(state, stripped.slice, define_offset + content_start), .raw_source = raw_source },
         .name = name,
         .consumed = content_start + close + define_close.len,
     };
@@ -640,12 +740,12 @@ fn parseComparison(tag: []const u8) N.Condition.Comparison {
 
 // ---- Attribute and transform parsing ----
 
-fn parseTransformAttr(a: Allocator, tag: []const u8) ParseError![]const N.TransformStep {
+fn parseTransformAttr(state: ParseState, tag: []const u8) ParseError![]const N.TransformStep {
     const spec = h.extractAttrValue(tag, "transform") orelse return &.{};
-    return parseTransformSpec(a, spec);
+    return parseTransformSpec(state, spec);
 }
 
-fn parseTransformSpec(a: Allocator, spec: []const u8) ParseError![]const N.TransformStep {
+fn parseTransformSpec(state: ParseState, spec: []const u8) ParseError![]const N.TransformStep {
     var steps: std.ArrayList(N.TransformStep) = .{};
     var pipe_iter = std.mem.splitScalar(u8, spec, '|');
 
@@ -654,14 +754,14 @@ fn parseTransformSpec(a: Allocator, spec: []const u8) ParseError![]const N.Trans
         var colon_iter = std.mem.splitScalar(u8, xform, ':');
         const name = colon_iter.next().?;
         var args: std.ArrayList([]const u8) = .{};
-        while (colon_iter.next()) |arg| try args.append(a, arg);
-        try steps.append(a, .{ .name = name, .args = try args.toOwnedSlice(a) });
+        while (colon_iter.next()) |arg| try args.append(state.a, arg);
+        try steps.append(state.a, .{ .name = name, .args = try args.toOwnedSlice(state.a) });
     }
 
-    return steps.toOwnedSlice(a);
+    return steps.toOwnedSlice(state.a);
 }
 
-fn parseTagAttrList(a: Allocator, tag: []const u8) ParseError![]const N.Attr {
+fn parseTagAttrList(state: ParseState, tag: []const u8) ParseError![]const N.Attr {
     var attrs: std.ArrayList(N.Attr) = .{};
     var i: usize = 1;
     while (i < tag.len and tag[i] != ' ' and tag[i] != '/' and tag[i] != '>') : (i += 1) {}
@@ -681,20 +781,23 @@ fn parseTagAttrList(a: Allocator, tag: []const u8) ParseError![]const N.Attr {
                 const attr_value = tag[val_start..i];
                 if (i < tag.len) i += 1;
                 if (!std.mem.eql(u8, attr_name, "template")) {
-                    try attrs.append(a, .{ .name = attr_name, .value = attr_value });
+                    try attrs.append(state.a, .{ .name = attr_name, .value = attr_value });
                 }
             }
         } else if (!std.mem.eql(u8, attr_name, "template")) {
-            try attrs.append(a, .{ .name = attr_name, .value = "" });
+            try attrs.append(state.a, .{ .name = attr_name, .value = "" });
         }
     }
 
-    return attrs.toOwnedSlice(a);
+    return attrs.toOwnedSlice(state.a);
 }
 
-fn parseUintAttr(tag: []const u8, name: []const u8) ParseError!?usize {
+fn parseUintAttr(state: ParseState, tag: []const u8, name: []const u8, tag_offset: usize) ParseError!?usize {
     const val = h.extractAttrValue(tag, name) orelse return null;
-    return std.fmt.parseInt(usize, val, 10) catch return error.MalformedElement;
+    return std.fmt.parseInt(usize, val, 10) catch {
+        state.fail(tag_offset, .malformed_element, "invalid integer value for attribute");
+        return error.MalformedElement;
+    };
 }
 
 // ---- Conditional separator detection ----
@@ -710,14 +813,14 @@ fn findConditionalSeparator(body: []const u8, from: usize) ?Separator {
 const testing = std.testing;
 
 test "parse plain text" {
-    var result = try parse(testing.allocator, "hello world");
+    var result = try parse(testing.allocator, "hello world", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 1), result.nodes.len);
     try testing.expectEqualStrings("hello world", result.nodes[0].text);
 }
 
 test "parse variable" {
-    var result = try parse(testing.allocator, "<t-var name=\"title\" />");
+    var result = try parse(testing.allocator, "<t-var name=\"title\" />", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 1), result.nodes.len);
     try testing.expectEqualStrings("title", result.nodes[0].variable.name);
@@ -725,14 +828,14 @@ test "parse variable" {
 }
 
 test "parse raw variable" {
-    var result = try parse(testing.allocator, "<t-raw name=\"content\" />");
+    var result = try parse(testing.allocator, "<t-raw name=\"content\" />", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 1), result.nodes.len);
     try testing.expectEqualStrings("content", result.nodes[0].raw_variable.name);
 }
 
 test "parse variable with transform" {
-    var result = try parse(testing.allocator, "<t-var name=\"title\" transform=\"upper|truncate:10\" />");
+    var result = try parse(testing.allocator, "<t-var name=\"title\" transform=\"upper|truncate:10\" />", .{});
     defer result.deinit();
     const v = result.nodes[0].variable;
     try testing.expectEqualStrings("title", v.name);
@@ -744,7 +847,7 @@ test "parse variable with transform" {
 }
 
 test "parse variable with default body" {
-    var result = try parse(testing.allocator, "<t-var name=\"title\">Untitled</t-var>");
+    var result = try parse(testing.allocator, "<t-var name=\"title\">Untitled</t-var>", .{});
     defer result.deinit();
     const v = result.nodes[0].variable;
     try testing.expectEqualStrings("title", v.name);
@@ -753,7 +856,7 @@ test "parse variable with default body" {
 }
 
 test "parse text with embedded variable" {
-    var result = try parse(testing.allocator, "<p><t-var name=\"x\" /></p>");
+    var result = try parse(testing.allocator, "<p><t-var name=\"x\" /></p>", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 3), result.nodes.len);
     try testing.expectEqualStrings("<p>", result.nodes[0].text);
@@ -762,7 +865,7 @@ test "parse text with embedded variable" {
 }
 
 test "parse let binding" {
-    var result = try parse(testing.allocator, "<t-let name=\"x\">hello</t-let>");
+    var result = try parse(testing.allocator, "<t-let name=\"x\">hello</t-let>", .{});
     defer result.deinit();
     const lb = result.nodes[0].let_binding;
     try testing.expectEqualStrings("x", lb.name);
@@ -771,7 +874,7 @@ test "parse let binding" {
 }
 
 test "parse comment self-closing" {
-    var result = try parse(testing.allocator, "a<t-comment />b");
+    var result = try parse(testing.allocator, "a<t-comment />b", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 3), result.nodes.len);
     try testing.expectEqualStrings("a", result.nodes[0].text);
@@ -780,7 +883,7 @@ test "parse comment self-closing" {
 }
 
 test "parse comment block" {
-    var result = try parse(testing.allocator, "a<t-comment>ignored</t-comment>b");
+    var result = try parse(testing.allocator, "a<t-comment>ignored</t-comment>b", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 3), result.nodes.len);
     try testing.expectEqualStrings("a", result.nodes[0].text);
@@ -789,14 +892,14 @@ test "parse comment block" {
 }
 
 test "parse attr output" {
-    var result = try parse(testing.allocator, "<t-attr name=\"href\" />");
+    var result = try parse(testing.allocator, "<t-attr name=\"href\" />", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 1), result.nodes.len);
     try testing.expectEqualStrings("href", result.nodes[0].attr_output.name);
 }
 
 test "parse slot self-closing" {
-    var result = try parse(testing.allocator, "<t-slot name=\"main\" />");
+    var result = try parse(testing.allocator, "<t-slot name=\"main\" />", .{});
     defer result.deinit();
     const s = result.nodes[0].slot;
     try testing.expectEqualStrings("main", s.name);
@@ -804,7 +907,7 @@ test "parse slot self-closing" {
 }
 
 test "parse slot with default" {
-    var result = try parse(testing.allocator, "<t-slot name=\"main\">default</t-slot>");
+    var result = try parse(testing.allocator, "<t-slot name=\"main\">default</t-slot>", .{});
     defer result.deinit();
     const s = result.nodes[0].slot;
     try testing.expectEqualStrings("main", s.name);
@@ -813,7 +916,7 @@ test "parse slot with default" {
 }
 
 test "parse include self-closing" {
-    var result = try parse(testing.allocator, "<t-include template=\"card.html\" class=\"wide\" />");
+    var result = try parse(testing.allocator, "<t-include template=\"card.html\" class=\"wide\" />", .{});
     defer result.deinit();
     const inc = result.nodes[0].include;
     try testing.expectEqualStrings("card.html", inc.template);
@@ -823,7 +926,7 @@ test "parse include self-closing" {
 }
 
 test "parse include with anonymous body" {
-    var result = try parse(testing.allocator, "<t-include template=\"box.html\">content</t-include>");
+    var result = try parse(testing.allocator, "<t-include template=\"box.html\">content</t-include>", .{});
     defer result.deinit();
     const inc = result.nodes[0].include;
     try testing.expectEqualStrings("box.html", inc.template);
@@ -839,7 +942,7 @@ test "parse include with defines" {
         \\  </t-define>
         \\</t-include>
     ;
-    var result = try parse(testing.allocator, source);
+    var result = try parse(testing.allocator, source, .{});
     defer result.deinit();
     const inc = result.nodes[0].include;
     try testing.expectEqual(@as(usize, 1), inc.defines.len);
@@ -853,7 +956,7 @@ test "parse extend" {
         \\  hello
         \\</t-define>
     ;
-    var result = try parse(testing.allocator, source);
+    var result = try parse(testing.allocator, source, .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 1), result.nodes.len);
     const ext = result.nodes[0].extend;
@@ -863,7 +966,7 @@ test "parse extend" {
 }
 
 test "parse for loop" {
-    var result = try parse(testing.allocator, "<t-for item in items>body</t-for>");
+    var result = try parse(testing.allocator, "<t-for item in items>body</t-for>", .{});
     defer result.deinit();
     const loop = result.nodes[0].loop;
     try testing.expectEqualStrings("item", loop.item_prefix);
@@ -876,7 +979,7 @@ test "parse for loop" {
 test "parse for loop with alias and attrs" {
     var result = try parse(testing.allocator,
         \\<t-for post in posts as loop sort="date" order="desc" limit="5" offset="2">x</t-for>
-    );
+    , .{});
     defer result.deinit();
     const loop = result.nodes[0].loop;
     try testing.expectEqualStrings("post", loop.item_prefix);
@@ -889,7 +992,7 @@ test "parse for loop with alias and attrs" {
 }
 
 test "parse conditional" {
-    var result = try parse(testing.allocator, "<t-if var=\"show\">yes</t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"show\">yes</t-if>", .{});
     defer result.deinit();
     const cond = result.nodes[0].conditional;
     try testing.expectEqual(@as(usize, 1), cond.branches.len);
@@ -900,7 +1003,7 @@ test "parse conditional" {
 
 test "parse conditional with elif and else" {
     const source = "<t-if var=\"a\">A<t-elif var=\"b\" />B<t-else />C</t-if>";
-    var result = try parse(testing.allocator, source);
+    var result = try parse(testing.allocator, source, .{});
     defer result.deinit();
     const cond = result.nodes[0].conditional;
     try testing.expectEqual(@as(usize, 2), cond.branches.len);
@@ -911,7 +1014,7 @@ test "parse conditional with elif and else" {
 }
 
 test "parse conditional with equals" {
-    var result = try parse(testing.allocator, "<t-if var=\"x\" equals=\"y\">match</t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"x\" equals=\"y\">match</t-if>", .{});
     defer result.deinit();
     const cond = result.nodes[0].conditional;
     switch (cond.branches[0].condition.comparison) {
@@ -921,7 +1024,7 @@ test "parse conditional with equals" {
 }
 
 test "parse bound tag" {
-    var result = try parse(testing.allocator, "<a t-var:href=\"url\">link</a>");
+    var result = try parse(testing.allocator, "<a t-var:href=\"url\">link</a>", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 2), result.nodes.len);
     const bt = result.nodes[0].bound_tag;
@@ -935,7 +1038,7 @@ test "parse bound tag" {
 }
 
 test "parse debug element" {
-    var result = try parse(testing.allocator, "a<t-debug />b");
+    var result = try parse(testing.allocator, "a<t-debug />b", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 3), result.nodes.len);
     try testing.expectEqualStrings("a", result.nodes[0].text);
@@ -944,7 +1047,7 @@ test "parse debug element" {
 }
 
 test "parse for-else" {
-    var result = try parse(testing.allocator, "<t-for item in items>body<t-else />empty</t-for>");
+    var result = try parse(testing.allocator, "<t-for item in items>body<t-else />empty</t-for>", .{});
     defer result.deinit();
     const loop = result.nodes[0].loop;
     try testing.expectEqual(@as(usize, 1), loop.body.len);
@@ -954,13 +1057,13 @@ test "parse for-else" {
 }
 
 test "parse for without else has empty else_body" {
-    var result = try parse(testing.allocator, "<t-for item in items>body</t-for>");
+    var result = try parse(testing.allocator, "<t-for item in items>body</t-for>", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 0), result.nodes[0].loop.else_body.len);
 }
 
 test "parse for-else ignores else inside nested if" {
-    var result = try parse(testing.allocator, "<t-for item in items><t-if var=\"x\">yes<t-else />no</t-if><t-else />empty</t-for>");
+    var result = try parse(testing.allocator, "<t-for item in items><t-if var=\"x\">yes<t-else />no</t-if><t-else />empty</t-for>", .{});
     defer result.deinit();
     const loop = result.nodes[0].loop;
     try testing.expectEqual(@as(usize, 1), loop.body.len);
@@ -970,7 +1073,7 @@ test "parse for-else ignores else inside nested if" {
 }
 
 test "parse conditional with contains" {
-    var result = try parse(testing.allocator, "<t-if var=\"x\" contains=\"hello\">yes</t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"x\" contains=\"hello\">yes</t-if>", .{});
     defer result.deinit();
     switch (result.nodes[0].conditional.branches[0].condition.comparison) {
         .contains => |v| try testing.expectEqualStrings("hello", v),
@@ -979,7 +1082,7 @@ test "parse conditional with contains" {
 }
 
 test "parse conditional with starts-with" {
-    var result = try parse(testing.allocator, "<t-if var=\"x\" starts-with=\"/blog\">yes</t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"x\" starts-with=\"/blog\">yes</t-if>", .{});
     defer result.deinit();
     switch (result.nodes[0].conditional.branches[0].condition.comparison) {
         .starts_with => |v| try testing.expectEqualStrings("/blog", v),
@@ -988,7 +1091,7 @@ test "parse conditional with starts-with" {
 }
 
 test "parse conditional with ends-with" {
-    var result = try parse(testing.allocator, "<t-if var=\"x\" ends-with=\".html\">yes</t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"x\" ends-with=\".html\">yes</t-if>", .{});
     defer result.deinit();
     switch (result.nodes[0].conditional.branches[0].condition.comparison) {
         .ends_with => |v| try testing.expectEqualStrings(".html", v),
@@ -997,7 +1100,7 @@ test "parse conditional with ends-with" {
 }
 
 test "parse conditional with matches" {
-    var result = try parse(testing.allocator, "<t-if var=\"x\" matches=\"*.html\">yes</t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"x\" matches=\"*.html\">yes</t-if>", .{});
     defer result.deinit();
     switch (result.nodes[0].conditional.branches[0].condition.comparison) {
         .matches => |v| try testing.expectEqualStrings("*.html", v),
@@ -1006,23 +1109,23 @@ test "parse conditional with matches" {
 }
 
 test "parse stray else is error" {
-    const result = parse(testing.allocator, "<t-else />");
+    const result = parse(testing.allocator, "<t-else />", .{});
     try testing.expectError(error.MalformedElement, result);
 }
 
 test "parse unclosed var is error" {
-    const result = parse(testing.allocator, "<t-var name=\"x\"");
+    const result = parse(testing.allocator, "<t-var name=\"x\"", .{});
     try testing.expectError(error.MalformedElement, result);
 }
 
 test "parse empty template" {
-    var result = try parse(testing.allocator, "");
+    var result = try parse(testing.allocator, "", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 0), result.nodes.len);
 }
 
 test "parse nested elements" {
-    var result = try parse(testing.allocator, "<t-if var=\"show\"><t-var name=\"x\" /></t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"show\"><t-var name=\"x\" /></t-if>", .{});
     defer result.deinit();
     const branch_body = result.nodes[0].conditional.branches[0].body;
     try testing.expectEqual(@as(usize, 1), branch_body.len);
@@ -1036,19 +1139,19 @@ test "parse duplicate slot definition is error" {
         \\  <t-define name="a">2</t-define>
         \\</t-include>
     ;
-    const result = parse(testing.allocator, source);
+    const result = parse(testing.allocator, source, .{});
     try testing.expectError(error.DuplicateSlotDefinition, result);
 }
 
 test "parse source positions" {
-    var result = try parse(testing.allocator, "hi <t-var name=\"x\" />");
+    var result = try parse(testing.allocator, "hi <t-var name=\"x\" />", .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 2), result.nodes.len);
     try testing.expectEqual(@as(usize, 3), result.nodes[1].variable.source_pos);
 }
 
 test "parse nested source positions" {
-    var result = try parse(testing.allocator, "<t-if var=\"a\">XY<t-var name=\"b\" /></t-if>");
+    var result = try parse(testing.allocator, "<t-if var=\"a\">XY<t-var name=\"b\" /></t-if>", .{});
     defer result.deinit();
     const body = result.nodes[0].conditional.branches[0].body;
     try testing.expectEqual(@as(usize, 2), body.len);

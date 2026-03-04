@@ -60,7 +60,7 @@ fn benchParse(a: std.mem.Allocator) !void {
     const iterations = 1000;
     var timer = try std.time.Timer.start();
     for (0..iterations) |_| {
-        var result = try Parser.parse(a, template_source);
+        var result = try Parser.parse(a, template_source, .{});
         result.deinit();
     }
     const elapsed = timer.read();
@@ -134,7 +134,7 @@ test "benchmark suite" {
 
     try benchParse(a);
 
-    var parse_result = try Parser.parse(a, template_source);
+    var parse_result = try Parser.parse(a, template_source, .{});
     defer parse_result.deinit();
     try benchRender(a, parse_result.nodes, &ctx);
 

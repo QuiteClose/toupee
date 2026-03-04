@@ -147,3 +147,30 @@
 <!-- error: TemplateNotFound -->
 <!-- error-kind: template_not_found -->
 <!-- error-message: inner.html -->
+
+<!-- test: parse error has line and column -->
+<!-- in -->
+hello
+<t-var name="x"
+<!-- error: MalformedElement -->
+<!-- error-line: 2 -->
+<!-- error-column: 1 -->
+<!-- error-kind: malformed_element -->
+<!-- error-message: unclosed variable tag -->
+
+<!-- test: parse error for missing name attribute -->
+<!-- in -->
+<t-var />
+<!-- error: MalformedElement -->
+<!-- error-line: 1 -->
+<!-- error-kind: malformed_element -->
+<!-- error-message: missing 'name' attribute -->
+
+<!-- test: parse error in included template -->
+<!-- in:broken.html -->
+<t-let name="x">no close
+<!-- in -->
+<t-include template="broken.html" />
+<!-- error: MalformedElement -->
+<!-- error-kind: malformed_element -->
+<!-- error-message: missing closing </t-let> tag -->

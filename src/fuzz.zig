@@ -13,7 +13,7 @@ test "fuzz parser does not crash" {
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
             const a = arena.allocator();
-            const result = Parser.parse(a, input);
+            const result = Parser.parse(a, input, .{});
             if (result) |r| {
                 var mutable = r;
                 mutable.deinit();
@@ -38,7 +38,7 @@ test "fuzz renderer does not crash" {
             defer arena.deinit();
             const a = arena.allocator();
 
-            const parse_result = Parser.parse(a, input) catch return;
+            const parse_result = Parser.parse(a, input, .{}) catch return;
             var ctx: Ctx.Context = .{};
             ctx.putData(a, "x", .{ .string = "val" }) catch return;
             ctx.putData(a, "y", .{ .string = "val2" }) catch return;

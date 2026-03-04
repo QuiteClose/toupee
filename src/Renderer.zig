@@ -154,7 +154,7 @@ fn renderAttrOutput(state: State, ao: N.AttrOutput, ctx: *const Context, out: *s
 fn renderSlot(state: State, s: N.Slot, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
     const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
     if (ctx.getSlot(s.name)) |content| {
-        const parse_result = Parser.parse(state.a, content) catch return error.MalformedElement;
+        const parse_result = try Parser.parse(state.a, content, .{ .err_detail = ctx.err_detail });
         const rendered = try renderNodes(state, parse_result.nodes, ctx, depth);
         try indent_mod.appendIndented(state.a, out, rendered, indent);
     } else if (s.default_body.len > 0) {
@@ -186,7 +186,7 @@ fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out:
     const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
     const lc = h.computeLineCol(state.template_source, inc.source_pos);
     const child_state = state.pushInclude(inc.template, tmpl_content, lc.line);
-    const tmpl_parse = Parser.parse(state.a, tmpl_content) catch return error.MalformedElement;
+    const tmpl_parse = try Parser.parse(state.a, tmpl_content, .{ .err_detail = ctx.err_detail, .template_name = inc.template });
     const rendered = try renderNodes(child_state, tmpl_parse.nodes, &child_ctx, depth + 1);
     try indent_mod.appendIndented(state.a, out, rendered, indent);
 }
@@ -223,7 +223,7 @@ fn resolveExtendChain(
     var current_state = state.pushInclude(initial_template, current_source, lc.line);
 
     while (true) {
-        const parent_parse = Parser.parse(state.a, current_source) catch return error.MalformedElement;
+        const parent_parse = try Parser.parse(state.a, current_source, .{ .err_detail = ctx.err_detail, .template_name = current_state.template_name });
         if (parent_parse.nodes.len == 0) return "";
         if (parent_parse.nodes[0] != .extend)
             return renderExtendLeaf(current_state, parent_parse.nodes, ctx, slots, depth);
