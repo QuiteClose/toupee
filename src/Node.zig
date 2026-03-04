@@ -48,7 +48,14 @@ pub const Include = struct {
     defines: []const Define = &.{},
     anonymous_body: []const Node = &.{},
     anonymous_body_source: []const u8 = "",
+    isolated: bool = false,
+    context_bindings: []const ContextBinding = &.{},
     source_pos: usize = 0,
+};
+
+pub const ContextBinding = struct {
+    path: []const u8,
+    key: []const u8,
 };
 
 pub const Extend = struct {

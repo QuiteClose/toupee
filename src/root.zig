@@ -97,6 +97,28 @@ pub const Engine = struct {
         defer a.free(raw);
         return format.prettyPrint(a, raw);
     }
+
+    pub fn renderTemplateFormatted(self: *const Engine, a: Allocator, name: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) (RenderError || error{OutOfMemory})![]const u8 {
+        const raw = try self.renderTemplate(a, name, ctx, resolver, options);
+        defer a.free(raw);
+        return format.prettyPrint(a, raw);
+    }
+
+    pub fn removeTemplate(self: *Engine, name: []const u8) void {
+        if (self.cache.fetchSwapRemove(name)) |entry| {
+            self.allocator.free(entry.value.source);
+            entry.value.arena.deinit();
+        }
+    }
+
+    pub fn clearTemplates(self: *Engine) void {
+        var it = self.cache.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.value_ptr.source);
+            entry.value_ptr.arena.deinit();
+        }
+        self.cache.clearRetainingCapacity();
+    }
 };
 
 pub fn render(a: Allocator, input: []const u8, ctx: *const Context, resolver: *const Resolver, options: Options) RenderError![]const u8 {
@@ -203,6 +225,76 @@ test "engine renderOwned returns RenderResult" {
     const result = try engine.renderOwned(testing.allocator, "<t-var name=\"x\" />", &ctx, &resolver, .{});
     defer result.deinit();
     try testing.expectEqualStrings("42", result.output);
+}
+
+test "engine renderTemplateFormatted" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("frag.html", "<div>\n<p>hello</p>\n</div>");
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const result = try engine.renderTemplateFormatted(testing.allocator, "frag.html", &ctx, &resolver, .{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("<div>\n  <p>hello</p>\n</div>", result);
+}
+
+test "engine removeTemplate" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("tmp.html", "hello");
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const r1 = try engine.renderTemplate(testing.allocator, "tmp.html", &ctx, &resolver, .{});
+    defer testing.allocator.free(r1);
+    try testing.expectEqualStrings("hello", r1);
+
+    engine.removeTemplate("tmp.html");
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "tmp.html", &ctx, &resolver, .{}));
+}
+
+test "engine removeTemplate non-existent is no-op" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    engine.removeTemplate("ghost.html");
+}
+
+test "engine removeTemplate then re-add" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "v1");
+    engine.removeTemplate("page.html");
+    try engine.addTemplate("page.html", "v2");
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const result = try engine.renderTemplate(testing.allocator, "page.html", &ctx, &resolver, .{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("v2", result);
+}
+
+test "engine clearTemplates" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("a.html", "A");
+    try engine.addTemplate("b.html", "B");
+    engine.clearTemplates();
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "a.html", &ctx, &resolver, .{}));
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "b.html", &ctx, &resolver, .{}));
+}
+
+test "engine HTMX fragment pattern" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("user-status.html", "<div id=\"status\"><t-var name=\"name\" /> is <t-var name=\"status\" /></div>");
+    var ctx: Context = .{};
+    try ctx.putData(testing.allocator, "name", .{ .string = "Alice" });
+    try ctx.putData(testing.allocator, "status", .{ .string = "online" });
+    defer ctx.data.deinit(testing.allocator);
+    var resolver: Resolver = .{};
+    const result = try engine.renderTemplate(testing.allocator, "user-status.html", &ctx, &resolver, .{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("<div id=\"status\">Alice is online</div>", result);
 }
 
 test "engine addTemplate replaces existing" {

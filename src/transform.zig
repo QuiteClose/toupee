@@ -32,6 +32,7 @@ pub const Registry = struct {
             .{ "escape", escapeTransform },
             .{ "url_encode", urlEncode },
             .{ "url_decode", urlDecode },
+            .{ "js_escape", jsEscape },
             .{ "join", joinTransform },
             .{ "split", splitTransform },
             .{ "first", firstTransform },
@@ -182,6 +183,38 @@ pub fn urlDecode(a: Allocator, value: []const u8, _: []const []const u8) RenderE
             }
         }
         try out.append(a, value[i]);
+        i += 1;
+    }
+    return out.toOwnedSlice(a);
+}
+
+pub fn jsEscape(a: Allocator, value: []const u8, _: []const []const u8) RenderError![]u8 {
+    var out: std.ArrayList(u8) = .{};
+    var i: usize = 0;
+    while (i < value.len) {
+        switch (value[i]) {
+            '\\' => try out.appendSlice(a, "\\\\"),
+            '"' => try out.appendSlice(a, "\\\""),
+            '\'' => try out.appendSlice(a, "\\'"),
+            '\n' => try out.appendSlice(a, "\\n"),
+            '\r' => try out.appendSlice(a, "\\r"),
+            '\t' => try out.appendSlice(a, "\\t"),
+            else => {
+                // U+2028 LINE SEPARATOR: E2 80 A8
+                if (i + 2 < value.len and value[i] == 0xE2 and value[i + 1] == 0x80 and value[i + 2] == 0xA8) {
+                    try out.appendSlice(a, "\\u2028");
+                    i += 3;
+                    continue;
+                }
+                // U+2029 PARAGRAPH SEPARATOR: E2 80 A9
+                if (i + 2 < value.len and value[i] == 0xE2 and value[i + 1] == 0x80 and value[i + 2] == 0xA9) {
+                    try out.appendSlice(a, "\\u2029");
+                    i += 3;
+                    continue;
+                }
+                try out.append(a, value[i]);
+            },
+        }
         i += 1;
     }
     return out.toOwnedSlice(a);
@@ -386,4 +419,46 @@ test "date transform passthrough" {
     const result = try dateTransform(testing.allocator, "2026-03-03", &.{});
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("2026-03-03", result);
+}
+
+test "js_escape backslash" {
+    const result = try jsEscape(testing.allocator, "a\\b", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("a\\\\b", result);
+}
+
+test "js_escape double quote" {
+    const result = try jsEscape(testing.allocator, "say \"hello\"", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("say \\\"hello\\\"", result);
+}
+
+test "js_escape single quote" {
+    const result = try jsEscape(testing.allocator, "it's", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("it\\'s", result);
+}
+
+test "js_escape newline and carriage return" {
+    const result = try jsEscape(testing.allocator, "line1\nline2\rline3", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("line1\\nline2\\rline3", result);
+}
+
+test "js_escape tab" {
+    const result = try jsEscape(testing.allocator, "col1\tcol2", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("col1\\tcol2", result);
+}
+
+test "js_escape unicode line/paragraph separators" {
+    const result = try jsEscape(testing.allocator, "a\xe2\x80\xa8b\xe2\x80\xa9c", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("a\\u2028b\\u2029c", result);
+}
+
+test "js_escape passthrough safe chars" {
+    const result = try jsEscape(testing.allocator, "hello world 123", &.{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("hello world 123", result);
 }

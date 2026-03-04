@@ -2,14 +2,11 @@
 <!-- in:card.html -->
 <article><t-var name="post.title" /> by <t-attr name="author" /></article>
 <!-- in -->
-<t-for post in posts>
-<t-include template="card.html" isolated context="post" author="QuiteClose" />
-</t-for>
+<t-for post in posts><t-include template="card.html" isolated context="post" author="QuiteClose" /></t-for>
 <!-- context -->
-{"data": {"posts": [{"title": "Hello"}, {"title": "World"}], "secret": "hidden"}, "templates": {"card.html": ""}}
+{"data": {"posts": [{"title": "Hello"}, {"title": "World"}], "secret": "hidden"}}
 <!-- out -->
-<article>Hello by QuiteClose</article>
-<article>World by QuiteClose</article>
+<article>Hello by QuiteClose</article><article>World by QuiteClose</article>
 
 <!-- test: context attribute with as keyword renames paths -->
 <!-- in:profile.html -->
@@ -17,7 +14,7 @@
 <!-- in -->
 <t-include template="profile.html" isolated context="post.author as writer, comment.author as reviewer" />
 <!-- context -->
-{"data": {"post": {"author": {"name": "Alice"}}, "comment": {"author": {"name": "Bob"}}}, "templates": {"profile.html": ""}}
+{"data": {"post": {"author": {"name": "Alice"}}, "comment": {"author": {"name": "Bob"}}}}
 <!-- out -->
 <span>Alice / Bob</span>
 
@@ -27,7 +24,7 @@
 <!-- in -->
 <t-include template="badge.html" isolated label="New" />
 <!-- context -->
-{"data": {"secret": "hidden"}, "templates": {"badge.html": ""}}
+{"data": {"secret": "hidden"}}
 <!-- out -->
 <span class="badge">New</span>
 
@@ -39,7 +36,7 @@
 <!-- in -->
 <t-include template="outer.html" isolated context="item" />
 <!-- context -->
-{"data": {"item": {"detail": {"text": "deep"}}, "secret": "hidden"}, "templates": {"outer.html": "", "inner.html": ""}}
+{"data": {"item": {"detail": {"text": "deep"}}, "secret": "hidden"}}
 <!-- out -->
 <div><span>deep</span></div>
 
@@ -47,14 +44,11 @@
 <!-- in:numbered.html -->
 <li><t-var name="loop.number" />. <t-var name="item.name" /></li>
 <!-- in -->
-<t-for item in items as loop>
-<t-include template="numbered.html" isolated context="item, loop" />
-</t-for>
+<t-for item in items as loop><t-include template="numbered.html" isolated context="item, loop" /></t-for>
 <!-- context -->
-{"data": {"items": [{"name": "A"}, {"name": "B"}]}, "templates": {"numbered.html": ""}}
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}}
 <!-- out -->
-<li>1. A</li>
-<li>2. B</li>
+<li>1. A</li><li>2. B</li>
 
 <!-- test: fragment template renders without layout wrapping -->
 <!-- in -->

@@ -372,12 +372,20 @@ fn parseInclude(state: ParseState, input: []const u8, start: usize, nodes: *std.
         if (strip.slice.len > 0) result = try parseDefines(state, strip.slice, offset + start + tag_end + 1);
     }
 
+    const isolated = h.hasBoolAttr(tag, "isolated");
+    const context_bindings = if (isolated)
+        try parseContextBindings(state, h.extractAttrValue(tag, "context"))
+    else
+        &[_]N.ContextBinding{};
+
     try nodes.append(state.a, .{ .include = .{
         .template = tmpl_name,
         .attrs = attrs,
         .defines = result.defines,
         .anonymous_body = result.anonymous_body,
         .anonymous_body_source = result.anonymous_body_source,
+        .isolated = isolated,
+        .context_bindings = context_bindings,
         .source_pos = offset + start,
     } });
     return start + consumed;
@@ -780,16 +788,42 @@ fn parseTagAttrList(state: ParseState, tag: []const u8) ParseError![]const N.Att
                 while (i < tag.len and tag[i] != '"') : (i += 1) {}
                 const attr_value = tag[val_start..i];
                 if (i < tag.len) i += 1;
-                if (!std.mem.eql(u8, attr_name, "template")) {
+                if (!isReservedAttr(attr_name)) {
                     try attrs.append(state.a, .{ .name = attr_name, .value = attr_value });
                 }
             }
-        } else if (!std.mem.eql(u8, attr_name, "template")) {
+        } else if (!isReservedAttr(attr_name)) {
             try attrs.append(state.a, .{ .name = attr_name, .value = "" });
         }
     }
 
     return attrs.toOwnedSlice(state.a);
+}
+
+fn isReservedAttr(name: []const u8) bool {
+    return std.mem.eql(u8, name, "template") or
+        std.mem.eql(u8, name, "isolated") or
+        std.mem.eql(u8, name, "context");
+}
+
+fn parseContextBindings(state: ParseState, spec: ?[]const u8) ParseError![]const N.ContextBinding {
+    const raw = spec orelse return &.{};
+    if (raw.len == 0) return &.{};
+    var bindings: std.ArrayList(N.ContextBinding) = .{};
+    var iter = std.mem.splitScalar(u8, raw, ',');
+    while (iter.next()) |entry| {
+        const trimmed = std.mem.trim(u8, entry, " ");
+        if (trimmed.len == 0) continue;
+        if (std.mem.indexOf(u8, trimmed, " as ")) |as_pos| {
+            const path = std.mem.trim(u8, trimmed[0..as_pos], " ");
+            const key = std.mem.trim(u8, trimmed[as_pos + 4 ..], " ");
+            try bindings.append(state.a, .{ .path = path, .key = key });
+        } else {
+            const leaf = if (std.mem.lastIndexOfScalar(u8, trimmed, '.')) |dot| trimmed[dot + 1 ..] else trimmed;
+            try bindings.append(state.a, .{ .path = trimmed, .key = leaf });
+        }
+    }
+    return bindings.toOwnedSlice(state.a);
 }
 
 fn parseUintAttr(state: ParseState, tag: []const u8, name: []const u8, tag_offset: usize) ParseError!?usize {

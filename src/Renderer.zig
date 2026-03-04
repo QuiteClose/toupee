@@ -176,8 +176,18 @@ fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out:
     var inc_attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{};
     for (inc.attrs) |attr| try inc_attrs.put(state.a, attr.name, attr.value);
 
+    var child_data: V.Map = if (inc.isolated) .{} else ctx.data;
+    if (inc.isolated) {
+        for (inc.context_bindings) |binding| {
+            const root: V.Value = .{ .map = ctx.data };
+            if (root.resolve(binding.path)) |val| {
+                try child_data.put(state.a, binding.key, val);
+            }
+        }
+    }
+
     var child_ctx: Context = .{
-        .data = ctx.data,
+        .data = child_data,
         .attrs = inc_attrs,
         .slots = child_slots,
         .err_detail = ctx.err_detail,
