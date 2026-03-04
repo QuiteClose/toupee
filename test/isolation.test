@@ -1,0 +1,65 @@
+<!-- test: isolated include receives loop item via context -->
+<!-- in:card.html -->
+<article><t-var name="post.title" /> by <t-attr name="author" /></article>
+<!-- in -->
+<t-for post in posts>
+<t-include template="card.html" isolated context="post" author="QuiteClose" />
+</t-for>
+<!-- context -->
+{"data": {"posts": [{"title": "Hello"}, {"title": "World"}], "secret": "hidden"}, "templates": {"card.html": ""}}
+<!-- out -->
+<article>Hello by QuiteClose</article>
+<article>World by QuiteClose</article>
+
+<!-- test: context attribute with as keyword renames paths -->
+<!-- in:profile.html -->
+<span><t-var name="writer.name" /> / <t-var name="reviewer.name" /></span>
+<!-- in -->
+<t-include template="profile.html" isolated context="post.author as writer, comment.author as reviewer" />
+<!-- context -->
+{"data": {"post": {"author": {"name": "Alice"}}, "comment": {"author": {"name": "Bob"}}}, "templates": {"profile.html": ""}}
+<!-- out -->
+<span>Alice / Bob</span>
+
+<!-- test: isolated include with no context attribute gets empty data -->
+<!-- in:badge.html -->
+<span class="badge"><t-attr name="label" /></span>
+<!-- in -->
+<t-include template="badge.html" isolated label="New" />
+<!-- context -->
+{"data": {"secret": "hidden"}, "templates": {"badge.html": ""}}
+<!-- out -->
+<span class="badge">New</span>
+
+<!-- test: nested isolated includes each have their own scope -->
+<!-- in:outer.html -->
+<div><t-include template="inner.html" isolated context="item.detail as info" /></div>
+<!-- in:inner.html -->
+<span><t-var name="info.text" /></span>
+<!-- in -->
+<t-include template="outer.html" isolated context="item" />
+<!-- context -->
+{"data": {"item": {"detail": {"text": "deep"}}, "secret": "hidden"}, "templates": {"outer.html": "", "inner.html": ""}}
+<!-- out -->
+<div><span>deep</span></div>
+
+<!-- test: loop metadata survives in isolated include context -->
+<!-- in:numbered.html -->
+<li><t-var name="loop.number" />. <t-var name="item.name" /></li>
+<!-- in -->
+<t-for item in items as loop>
+<t-include template="numbered.html" isolated context="item, loop" />
+</t-for>
+<!-- context -->
+{"data": {"items": [{"name": "A"}, {"name": "B"}]}, "templates": {"numbered.html": ""}}
+<!-- out -->
+<li>1. A</li>
+<li>2. B</li>
+
+<!-- test: fragment template renders without layout wrapping -->
+<!-- in -->
+<div id="user-status"><t-var name="user.name" /> is <t-var name="user.status" /></div>
+<!-- context -->
+{"data": {"user": {"name": "Alice", "status": "online"}}}
+<!-- out -->
+<div id="user-status">Alice is online</div>
