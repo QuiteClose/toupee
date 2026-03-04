@@ -1,0 +1,206 @@
+# Tutorial: SSG and Live Server Patterns
+
+Toupee works in two modes: as a static site generator (SSG) that writes HTML files to disk, and as a live server that renders templates per-request. Both modes use the same Engine API.
+
+## Static site generation
+
+Load templates at startup, render pages, write to disk:
+
+```zig
+const toupee = @import("toupee");
+
+pub fn main() !void {
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    defer _ = gpa.deinit();
+    const a = gpa.allocator();
+
+    // Setup phase: load templates
+    var engine = try toupee.Engine.init(a);
+    defer engine.deinit();
+
+    try engine.addTemplate("base.html", @embedFile("templates/base.html"));
+    try engine.addTemplate("page.html", @embedFile("templates/page.html"));
+
+    // Validate before rendering
+    var resolver: toupee.Resolver = .{};
+    const diags = try engine.validate(a, &resolver);
+    defer a.free(diags);
+    if (diags.len > 0) {
+        for (diags) |d| std.debug.print("{s}: {s}\n", .{ d.template, d.message });
+        return error.ValidationFailed;
+    }
+
+    // Render phase: build pages
+    var ctx: toupee.Context = .{};
+    try ctx.putData(a, "title", .{ .string = "Home" });
+    defer ctx.data.deinit(a);
+
+    const html = try engine.renderTemplate(a, "page.html", &ctx, &resolver, .{});
+    defer a.free(html);
+
+    try std.fs.cwd().writeFile(.{ .sub_path = "out/index.html", .data = html });
+}
+```
+
+## Live server with HTMX
+
+For a live server, set up the engine once at startup, then render per-request. Fragment templates (no `<t-extend>`) produce standalone HTML snippets for HTMX responses.
+
+### Engine setup at init
+
+```zig
+// At server startup (setup phase)
+var engine = try toupee.Engine.init(allocator);
+
+// Full-page templates
+try engine.addTemplate("base.html", base_source);
+try engine.addTemplate("page.html", page_source);
+
+// Fragment templates for HTMX responses
+try engine.addTemplate("user-status.html",
+    \\<div id="status"><t-var name="name" /> is <t-var name="status" /></div>
+);
+try engine.addTemplate("todo-item.html",
+    \\<li id="todo-<t-var name="id" />"><t-var name="text" /></li>
+);
+
+// Validate all templates before serving traffic
+var resolver: toupee.Resolver = .{};
+const diags = try engine.validate(allocator, &resolver);
+if (diags.len > 0) return error.InvalidTemplates;
+allocator.free(diags);
+```
+
+### Rendering per-request
+
+```zig
+// Per-request (serve phase -- thread-safe, uses *const Engine)
+fn handleStatus(engine: *const toupee.Engine, allocator: Allocator) ![]const u8 {
+    var ctx: toupee.Context = .{};
+    try ctx.putData(allocator, "name", .{ .string = "Alice" });
+    try ctx.putData(allocator, "status", .{ .string = "online" });
+    defer ctx.data.deinit(allocator);
+
+    var resolver: toupee.Resolver = .{};
+    return engine.renderTemplate(allocator, "user-status.html", &ctx, &resolver, .{});
+}
+```
+
+## Writer-based rendering
+
+For streaming directly to an HTTP response or file, use the writer methods. These render to a buffer then write the result, avoiding an extra copy at the caller.
+
+```zig
+// Write directly to an HTTP response writer
+try engine.renderTemplateToWriter(
+    allocator, "user-status.html", &ctx, &resolver, .{}, response.writer(),
+);
+
+// Write formatted (pretty-printed) output
+try engine.renderFormattedToWriter(
+    allocator, source, &ctx, &resolver, .{}, file.writer(),
+);
+```
+
+**Partial-write risk:** If the writer fails mid-write (e.g., dropped connection), partial output may have been written. Use a buffered writer if atomicity is needed.
+
+## Scope isolation
+
+Isolated includes receive only the data you explicitly pass, preventing accidental data leakage between components.
+
+### Basic isolation
+
+```html
+<!-- card.html -->
+<article>
+  <h2><t-var name="post.title" /></h2>
+  <p>by <t-attr name="author" /></p>
+</article>
+
+<!-- page.html -->
+<t-for post in posts>
+  <t-include template="card.html" isolated context="post" author="QuiteClose" />
+</t-for>
+```
+
+The card sees `post.title` but cannot access any other parent data (like `secret` or `config`). Attributes like `author` are passed as string values.
+
+### Renaming with `as`
+
+When including data from multiple paths that would collide on the same key, use `as` to rename:
+
+```html
+<t-include template="comparison.html" isolated
+  context="post.author as writer, comment.author as reviewer" />
+```
+
+The included template accesses `writer.name` and `reviewer.name` instead of both being `author`.
+
+### Fully isolated (attrs only)
+
+An isolated include with no `context` attribute receives no data at all -- only attributes and slots:
+
+```html
+<t-include template="badge.html" isolated label="New" />
+```
+
+## Cache management
+
+The engine supports hot-reload in development via cache management methods:
+
+```zig
+// Replace a single template
+engine.removeTemplate("page.html");
+try engine.addTemplate("page.html", new_source);
+
+// Clear everything and reload
+engine.clearTemplates();
+try engine.addTemplate("base.html", fresh_base);
+try engine.addTemplate("page.html", fresh_page);
+```
+
+These are setup-phase mutations -- do not call them while rendering.
+
+## Error handling
+
+### ErrorDetail for user-facing messages
+
+Pass an `ErrorDetail` pointer via the context to get rich error information:
+
+```zig
+var err_detail: toupee.ErrorDetail = .{};
+var ctx: toupee.Context = .{};
+ctx.err_detail = &err_detail;
+
+const result = engine.renderTemplate(allocator, "page.html", &ctx, &resolver, .{});
+if (result) |html| {
+    // success
+    allocator.free(html);
+} else |_| {
+    // err_detail now contains line, column, source_line, message, source_file
+    std.debug.print("{s}:{d}:{d}: {s}\n", .{
+        err_detail.source_file, err_detail.line, err_detail.column, err_detail.message,
+    });
+}
+```
+
+### Startup validation
+
+Call `validate()` after loading all templates to catch problems before serving traffic:
+
+```zig
+const diags = try engine.validate(allocator, &resolver);
+defer allocator.free(diags);
+
+for (diags) |d| {
+    std.debug.print("[{s}] {s}: {s}\n", .{
+        @tagName(d.kind), d.template, d.message,
+    });
+}
+
+if (diags.len > 0) return error.InvalidTemplates;
+```
+
+Validation checks for:
+- Missing `<t-include>` targets (not found in cache or resolver)
+- Missing `<t-extend>` targets (not found in cache or resolver)
