@@ -173,6 +173,33 @@ pub const Context = struct {
         try self.data.put(a, key, value);
     }
 
+    /// Inserts a value at a dot-separated path, creating intermediate maps as needed.
+    /// `"page.title"` ensures a `"page"` map exists in `data`, then puts `"title"` into it.
+    /// Returns `error.PathConflict` if an intermediate key exists but is not a `.map`.
+    /// Empty path is a no-op.
+    pub fn putDataPath(self: *Context, a: Allocator, path: []const u8, value: Value) (Allocator.Error || error{PathConflict})!void {
+        if (path.len == 0) return;
+
+        var current_map: *V.Map = &self.data;
+        var it = std.mem.splitScalar(u8, path, '.');
+
+        var segment = it.next().?;
+        while (it.peek() != null) {
+            if (current_map.getPtr(segment)) |val_ptr| {
+                switch (val_ptr.*) {
+                    .map => |*m| current_map = m,
+                    else => return error.PathConflict,
+                }
+            } else {
+                try current_map.put(a, segment, .{ .map = .{} });
+                current_map = &current_map.getPtr(segment).?.map;
+            }
+            segment = it.next().?;
+        }
+
+        try current_map.put(a, segment, value);
+    }
+
     pub fn putAttr(self: *Context, a: Allocator, key: []const u8, value: []const u8) !void {
         try self.attrs.put(a, key, value);
     }
@@ -194,9 +221,20 @@ pub const Context = struct {
     }
 
     pub fn deinit(self: *Context, a: Allocator) void {
-        self.data.deinit(a);
+        deinitMap(&self.data, a);
         self.attrs.deinit(a);
         self.slots.deinit(a);
+    }
+
+    fn deinitMap(map: *V.Map, a: Allocator) void {
+        var it = map.iterator();
+        while (it.next()) |entry| {
+            switch (entry.value_ptr.*) {
+                .map => |*m| deinitMap(m, a),
+                else => {},
+            }
+        }
+        map.deinit(a);
     }
 };
 
@@ -282,4 +320,59 @@ test "Resolver.loader ignores allocator (zero-copy)" {
     const s1 = try l.getSource(testing.allocator, "x.html");
     const s2 = try l.getSource(testing.allocator, "x.html");
     try testing.expect(s1.?.ptr == s2.?.ptr);
+}
+
+test "putDataPath simple key" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "title", .{ .string = "Hello" });
+    try testing.expectEqualStrings("Hello", ctx.resolve("title").?.asString().?);
+}
+
+test "putDataPath two-level path" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "page.title", .{ .string = "My Page" });
+    try testing.expectEqualStrings("My Page", ctx.resolve("page.title").?.asString().?);
+}
+
+test "putDataPath three-level path" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "page.meta.description", .{ .string = "A page" });
+    try testing.expectEqualStrings("A page", ctx.resolve("page.meta.description").?.asString().?);
+}
+
+test "putDataPath intermediate map already exists" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "page.title", .{ .string = "Title" });
+    try ctx.putDataPath(testing.allocator, "page.author", .{ .string = "QuiteClose" });
+    try testing.expectEqualStrings("Title", ctx.resolve("page.title").?.asString().?);
+    try testing.expectEqualStrings("QuiteClose", ctx.resolve("page.author").?.asString().?);
+}
+
+test "putDataPath intermediate key wrong type" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "page", .{ .string = "flat" });
+    try testing.expectError(error.PathConflict, ctx.putDataPath(testing.allocator, "page.title", .{ .string = "nested" }));
+}
+
+test "putDataPath empty path is no-op" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "", .{ .string = "ignored" });
+    try testing.expectEqual(@as(usize, 0), ctx.data.count());
+}
+
+test "putDataPath multiple puts to same parent" {
+    var ctx: Context = .{};
+    defer ctx.deinit(testing.allocator);
+    try ctx.putDataPath(testing.allocator, "site.name", .{ .string = "My Site" });
+    try ctx.putDataPath(testing.allocator, "site.url", .{ .string = "https://example.com" });
+    try ctx.putDataPath(testing.allocator, "site.version", .{ .integer = 3 });
+    try testing.expectEqualStrings("My Site", ctx.resolve("site.name").?.asString().?);
+    try testing.expectEqualStrings("https://example.com", ctx.resolve("site.url").?.asString().?);
+    try testing.expectEqual(@as(i64, 3), ctx.resolve("site.version").?.integer);
 }
