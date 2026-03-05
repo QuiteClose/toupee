@@ -32,7 +32,7 @@ pub fn main() !void {
 
     // Render phase: build pages
     var ctx: toupee.Context = .{};
-    try ctx.putData(a, "title", .{ .string = "Strand & Co" });
+    try ctx.put(a, "title", .{ .string = "Strand & Co" });
     defer ctx.data.deinit(a);
 
     const html = try engine.renderTemplate(a, "page.html", &ctx, resolver.loader(), .{});
@@ -77,8 +77,8 @@ allocator.free(diags);
 // Per-request (serve phase -- thread-safe, uses *const Engine)
 fn handleStatus(engine: *const toupee.Engine, allocator: Allocator) ![]const u8 {
     var ctx: toupee.Context = .{};
-    try ctx.putData(allocator, "name", .{ .string = "Marcel" });
-    try ctx.putData(allocator, "status", .{ .string = "seated" });
+    try ctx.put(allocator, "name", .{ .string = "Marcel" });
+    try ctx.put(allocator, "status", .{ .string = "seated" });
     defer ctx.data.deinit(allocator);
 
     var resolver: toupee.Resolver = .{};

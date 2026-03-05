@@ -33,10 +33,10 @@ fn buildContext(a: std.mem.Allocator) !Ctx.Context {
     var site: V.Map = .{};
     try site.put(a, "title", .{ .string = "My Blog" });
     try site.put(a, "name", .{ .string = "QuiteClose" });
-    try ctx.putData(a, "site", .{ .map = site });
+    try ctx.put(a, "site", .{ .map = site });
     var page: V.Map = .{};
     try page.put(a, "title", .{ .string = "Home" });
-    try ctx.putData(a, "page", .{ .map = page });
+    try ctx.put(a, "page", .{ .map = page });
     const post_count = 10;
     const posts = try a.alloc(V.Value, post_count);
     for (posts, 0..) |*post, i| {
@@ -52,7 +52,7 @@ fn buildContext(a: std.mem.Allocator) !Ctx.Context {
         try m.put(a, "tags", .{ .list = tags });
         post.* = .{ .map = m };
     }
-    try ctx.putData(a, "posts", .{ .list = posts });
+    try ctx.put(a, "posts", .{ .list = posts });
     return ctx;
 }
 

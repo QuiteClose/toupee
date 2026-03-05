@@ -87,7 +87,8 @@ defer allocator.free(result);
 
 | Method | Purpose |
 | --- | --- |
-| `addTemplate(name, source)` | Parse and cache a template (replaces existing) |
+| `addTemplate(name, source)` | Parse and cache a template (replaces existing); dupes both name and source |
+| `loadFromDirectory(base_path, extension)` | Recursively scan a directory and cache all matching files; sorted for deterministic order |
 | `removeTemplate(name)` | Remove a cached template (no-op if not found) |
 | `clearTemplates()` | Remove all cached templates |
 | `registerTransform(name, fn)` | Register a custom transform function |
@@ -204,6 +205,11 @@ Custom transforms registered via `Engine.registerTransform()`. Signature: `*cons
 
 - `data: Value.Map` — nested data tree (variables). Accessed via dot-path resolution (`page.title` → `data["page"]["title"]`). Caller-owned; the Renderer copies data on entry to child contexts, so the original is safe to reuse across render calls.
 - `slots: StringArrayHashMap([]const u8)` — rendered template fragments for slot filling.
+
+`Context` provides two methods for inserting data:
+
+- `put(a, key, value)` — inserts at a top-level key.
+- `putAt(a, path, value)` — inserts at a dot-separated path (e.g. `"page.meta.title"`), creating intermediate maps as needed. Returns `error.PathConflict` if an intermediate key exists but is not a `.map`. This is the primary method for building context from structured data (frontmatter, config, collections).
 
 `Value` is a tagged union: `string`, `boolean`, `integer`, `list`, `map`, `nil`. Variables resolve to `Value` via dot-path splitting on `.`.
 
@@ -325,3 +331,5 @@ The website repo (`quiteclose.github.io/`) contains an earlier prototype of the 
 - **`loop.first`/`loop.last` use conditional presence** (only set on first/last iteration) rather than boolean values, so they work naturally with existence-based `<t-if>`.
 - **For-else `<t-else />` inside `<t-for>`** correctly tracks both `<t-if>` and `<t-for>` nesting depth to avoid false matches.
 - **Glob matching** for `matches` comparisons uses `*` (any sequence) and `?` (one character). Not regex.
+- **Engine owns template names.** `addTemplate` dupes both the name and the source, so callers need not keep them alive. This enables `loadFromDirectory` to pass transient walker paths safely.
+- **`Context.deinit` recursively frees nested maps.** Maps created by `putAt` are owned by the Context and cleaned up automatically.

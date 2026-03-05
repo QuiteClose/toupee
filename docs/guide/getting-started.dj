@@ -38,10 +38,10 @@ var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "title", .{ .string = "Strand & Co" });
+try ctx.put(allocator, "title", .{ .string = "Strand & Co" });
 var salon: toupee.Value.Map = .{};
 try salon.put(allocator, "name", .{ .string = "Strand & Co" });
-try ctx.putData(allocator, "salon", .{ .map = salon });
+try ctx.put(allocator, "salon", .{ .map = salon });
 
 var resolver: toupee.Resolver = .{};
 const output = try engine.render(allocator, template_source, &ctx, resolver.loader(), .{});

@@ -188,7 +188,7 @@ fn renderVariable(
 fn renderLet(state: State, lb: N.LetBinding, ctx: *Context, depth: usize) RenderError!void {
     var rendered = try renderNodes(state, lb.body, ctx, depth);
     if (lb.transform.len > 0) rendered = try applyTransforms(state, rendered, lb.transform);
-    try ctx.putData(state.a, lb.name, .{ .string = rendered });
+    try ctx.put(state.a, lb.name, .{ .string = rendered });
 }
 
 fn renderAttrOutput(state: State, ao: N.AttrOutput, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
@@ -610,7 +610,7 @@ test "render plain text" {
 test "render variable" {
     const nodes = [_]Node{.{ .variable = .{ .name = "title" } }};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
+    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -621,7 +621,7 @@ test "render variable" {
 test "render variable escapes html" {
     const nodes = [_]Node{.{ .variable = .{ .name = "v" } }};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "v", .{ .string = "<b>bold</b>" });
+    try ctx.put(testing.allocator, "v", .{ .string = "<b>bold</b>" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -632,7 +632,7 @@ test "render variable escapes html" {
 test "render raw variable" {
     const nodes = [_]Node{.{ .raw_variable = .{ .name = "v" } }};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "v", .{ .string = "<b>bold</b>" });
+    try ctx.put(testing.allocator, "v", .{ .string = "<b>bold</b>" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -666,7 +666,7 @@ test "render conditional true branch" {
     }};
     const nodes = [_]Node{.{ .conditional = .{ .branches = &branches } }};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "show", .{ .string = "1" });
+    try ctx.put(testing.allocator, "show", .{ .string = "1" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -697,7 +697,7 @@ test "render bound tag" {
     };
     const nodes = [_]Node{.{ .bound_tag = .{ .segments = &segments } }};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "url", .{ .string = "/home" });
+    try ctx.put(testing.allocator, "url", .{ .string = "/home" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -756,7 +756,7 @@ test "strict true errors on missing variables" {
 test "debug element renders context dump" {
     const nodes = [_]Node{.debug};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
+    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{ .debug = true });
@@ -798,7 +798,7 @@ test "for-else renders else body on empty list" {
         .else_body = &else_body,
     } }};
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "items", .{ .list = &.{} });
+    try ctx.put(testing.allocator, "items", .{ .list = &.{} });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -811,7 +811,7 @@ test "rich error populates ErrorDetail" {
     const nodes = [_]Node{.{ .variable = .{ .name = "titl", .source_pos = 0 } }};
     var ed: Ctx.ErrorDetail = .{};
     var ctx: Context = .{ .err_detail = &ed };
-    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
+    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = render(testing.allocator, &nodes, &ctx, resolver.loader(), .{
@@ -857,8 +857,8 @@ test "renderToWriter matches render for mixed nodes" {
         .{ .variable = .{ .name = "missing", .default_body = &default_body, .has_body = true } },
     };
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "title", .{ .string = "Hello" });
-    try ctx.putData(testing.allocator, "show", .{ .string = "1" });
+    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
+    try ctx.put(testing.allocator, "show", .{ .string = "1" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
 

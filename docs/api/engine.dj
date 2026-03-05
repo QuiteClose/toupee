@@ -40,6 +40,20 @@ defer allocator.free(output2);
 
 `renderTemplate` renders from the cache without re-parsing. Returns `TemplateNotFound` if the template hasn't been added.
 
+## Loading templates from a directory
+
+`loadFromDirectory` recursively scans a directory and caches all files matching a given extension:
+
+```zig
+try engine.loadFromDirectory("templates", ".html");
+```
+
+This loads every `.html` file under `templates/` into the cache, using relative paths as template names. For example, `templates/layouts/page.html` becomes `"layouts/page.html"`.
+
+Files are loaded in sorted order for deterministic results. The method duplicates all file contents internally; the directory can be modified afterwards without affecting cached templates.
+
+This is independent of the `Loader`/`FileSystemLoader` system -- it populates the Engine's cache directly, while Loaders handle runtime resolution.
+
 ## RenderResult
 
 For convenience, `renderOwned` and `renderTemplateOwned` return a `RenderResult` struct that owns its memory:

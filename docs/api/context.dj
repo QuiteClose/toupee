@@ -11,19 +11,46 @@ var ctx: toupee.Context = .{};
 ### Adding data
 
 ```zig
-try ctx.putData(allocator, "title", .{ .string = "Welcome to the salon" });
+try ctx.put(allocator, "title", .{ .string = "Welcome to the salon" });
 
 var salon: toupee.Value.Map = .{};
 try salon.put(allocator, "name", .{ .string = "Strand & Co" });
-try ctx.putData(allocator, "salon", .{ .map = salon });
+try ctx.put(allocator, "salon", .{ .map = salon });
 ```
+
+### Adding nested data
+
+`putAt` builds nested map structures from dot-separated paths, creating intermediate maps as needed:
+
+```zig
+try ctx.putAt(allocator, "page.meta.title", .{ .string = "Welcome" });
+try ctx.putAt(allocator, "page.meta.draft", .{ .boolean = false });
+try ctx.putAt(allocator, "page.author", .{ .string = "QuiteClose" });
+defer ctx.deinit(allocator);
+```
+
+This creates the equivalent of:
+
+```zig
+var meta: toupee.Value.Map = .{};
+try meta.put(allocator, "title", .{ .string = "Welcome" });
+try meta.put(allocator, "draft", .{ .boolean = false });
+var page: toupee.Value.Map = .{};
+try page.put(allocator, "meta", .{ .map = meta });
+try page.put(allocator, "author", .{ .string = "QuiteClose" });
+try ctx.put(allocator, "page", .{ .map = page });
+```
+
+If an intermediate key already exists as a map, the method merges into it. If it exists but is not a map (e.g. a string), `error.PathConflict` is returned.
+
+When using `putAt`, call `ctx.deinit(allocator)` instead of `ctx.data.deinit(allocator)` to recursively free intermediate maps.
 
 ### Adding attributes
 
 Attributes are string key-value pairs used by `<t-attr>` in included templates:
 
 ```zig
-try ctx.putAttr(allocator, "variant", "signature");
+try ctx.setAttr(allocator, "variant", "signature");
 ```
 
 ### Adding slots
@@ -31,7 +58,7 @@ try ctx.putAttr(allocator, "variant", "signature");
 Slots are pre-rendered string content used by `<t-slot>`:
 
 ```zig
-try ctx.putSlot(allocator, "header", "<h1>Title</h1>");
+try ctx.setSlot(allocator, "header", "<h1>Title</h1>");
 ```
 
 ### Resolving values

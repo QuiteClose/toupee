@@ -37,7 +37,7 @@ pub fn main() !void {
 
     const template = "<h1><t-var name=\"title\" /></h1>";
     var ctx: toupee.Context = .{};
-    try ctx.putData(a, "title", .{ .string = "Welcome to the salon" });
+    try ctx.put(a, "title", .{ .string = "Welcome to the salon" });
     defer ctx.data.deinit(a);
 
     var resolver: toupee.Resolver = .{};
@@ -52,24 +52,28 @@ pub fn main() !void {
 
 ## Static site generator pattern
 
-For a static site generator, use the Engine's template cache:
+For a static site generator, load all templates from a directory and build context from structured data:
 
 ```zig
 var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
-// Load all templates once
-try engine.addTemplate("base.html", base_source);
-try engine.addTemplate("page.html", page_source);
+// Load all templates at once from a directory
+try engine.loadFromDirectory("templates", ".html");
 
-// Build resolver for runtime template lookup
-var resolver: toupee.Resolver = .{};
-try resolver.put(allocator, "base.html", base_source);
-try resolver.put(allocator, "page.html", page_source);
+// Or add individual templates
+try engine.addTemplate("extra.html", extra_source);
 
 // Render each page
 for (pages) |page| {
-    var ctx = buildPageContext(allocator, page);
+    var ctx: toupee.Context = .{};
+    // Build nested context from frontmatter-style data
+    try ctx.putAt(allocator, "site.title", .{ .string = site_title });
+    try ctx.putAt(allocator, "page.title", .{ .string = page.title });
+    try ctx.putAt(allocator, "page.date", .{ .string = page.date });
+    defer ctx.deinit(allocator);
+
+    var resolver: toupee.Resolver = .{};
     const output = try engine.renderTemplate(
         allocator, page.layout, &ctx, resolver.loader(), .{}
     );
@@ -78,7 +82,7 @@ for (pages) |page| {
 }
 ```
 
-`Resolver` implements the `Loader` interface; pass `resolver.loader()` to render and validate.
+`loadFromDirectory` populates the Engine's cache with pre-parsed templates. The `Loader` (via `resolver.loader()`) is still used for runtime template resolution during rendering (e.g. `<t-extend>` and `<t-include>` lookups).
 
 ## Memory management
 
@@ -87,7 +91,7 @@ Toupee uses Zig's allocator pattern throughout:
 - All `render` functions return caller-owned `[]const u8` that must be freed
 - `Engine.init` and `Engine.addTemplate` allocate internal structures
 - `Engine.deinit` frees all internal allocations
-- `Context` data must be freed by the caller
+- `Context` data must be freed by the caller; use `ctx.deinit(allocator)` when using `putAt` (frees nested maps), or `ctx.data.deinit(allocator)` for flat data
 - Use `ArenaAllocator` for per-request rendering to simplify cleanup
 
 ### Arena allocator pattern
@@ -115,7 +119,7 @@ test "home page renders correctly" {
     defer engine.deinit();
 
     var ctx: toupee.Context = .{};
-    try ctx.putData(std.testing.allocator, "title", .{ .string = "Strand & Co" });
+    try ctx.put(std.testing.allocator, "title", .{ .string = "Strand & Co" });
     defer ctx.data.deinit(std.testing.allocator);
 
     var resolver: toupee.Resolver = .{};

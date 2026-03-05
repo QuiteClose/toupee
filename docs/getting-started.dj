@@ -38,7 +38,7 @@ pub fn main() !void {
 
     var ctx: toupee.Context = .{};
     defer ctx.deinit(a);
-    try ctx.putData(a, "title", .{ .string = "Welcome to the salon" });
+    try ctx.put(a, "title", .{ .string = "Welcome to the salon" });
 
     var resolver: toupee.Resolver = .{};
 
@@ -118,7 +118,7 @@ try styles.append(.{ .map = blk: {
     try m.put(a, "name", .{ .string = "Pompadour" });
     break :blk m;
 } });
-try ctx.putData(a, "styles", .{ .list = styles.items });
+try ctx.put(a, "styles", .{ .list = styles.items });
 ```
 
 ```html

@@ -316,7 +316,7 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (attrs_val == .object) {
             var it = attrs_val.object.iterator();
             while (it.next()) |kv| {
-                try ctx.putAttr(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
+                try ctx.setAttr(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
                 });
@@ -328,7 +328,7 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (slots_val == .object) {
             var it = slots_val.object.iterator();
             while (it.next()) |kv| {
-                try ctx.putSlot(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
+                try ctx.setSlot(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
                 });

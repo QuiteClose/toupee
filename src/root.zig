@@ -181,8 +181,6 @@ pub const Engine = struct {
         self.cache.clearRetainingCapacity();
     }
 
-    const max_template_size = 10 * 1024 * 1024;
-
     /// Recursively scans `base_path` and loads all files matching `extension` into
     /// the template cache. Template names are paths relative to `base_path`
     /// (e.g. `"layouts/page.html"`). Files are loaded in sorted order for
@@ -212,7 +210,7 @@ pub const Engine = struct {
         }.lessThan);
 
         for (paths.items) |rel_path| {
-            const contents = try dir.readFileAlloc(self.allocator, rel_path, max_template_size);
+            const contents = try dir.readFileAlloc(self.allocator, rel_path, FileSystemLoader.max_template_size);
             defer self.allocator.free(contents);
             try self.addTemplate(rel_path, contents);
         }
@@ -487,7 +485,7 @@ test "engine render raw source" {
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "name", .{ .string = "world" });
+    try ctx.put(testing.allocator, "name", .{ .string = "world" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try engine.render(testing.allocator, "Hello <t-var name=\"name\" />!", &ctx, resolver.loader(), .{});
@@ -501,7 +499,7 @@ test "engine addTemplate and renderTemplate" {
     try engine.addTemplate("greeting.html", "Hello <t-var name=\"name\" />!");
 
     var ctx1: Context = .{};
-    try ctx1.putData(testing.allocator, "name", .{ .string = "Alice" });
+    try ctx1.put(testing.allocator, "name", .{ .string = "Alice" });
     defer ctx1.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const r1 = try engine.renderTemplate(testing.allocator, "greeting.html", &ctx1, resolver.loader(), .{});
@@ -509,7 +507,7 @@ test "engine addTemplate and renderTemplate" {
     try testing.expectEqualStrings("Hello Alice!", r1);
 
     var ctx2: Context = .{};
-    try ctx2.putData(testing.allocator, "name", .{ .string = "Bob" });
+    try ctx2.put(testing.allocator, "name", .{ .string = "Bob" });
     defer ctx2.data.deinit(testing.allocator);
     const r2 = try engine.renderTemplate(testing.allocator, "greeting.html", &ctx2, resolver.loader(), .{});
     defer testing.allocator.free(r2);
@@ -538,7 +536,7 @@ test "engine custom transform via registry" {
     defer engine.deinit();
     try engine.registerTransform("reverse", reverse);
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "msg", .{ .string = "abc" });
+    try ctx.put(testing.allocator, "msg", .{ .string = "abc" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try engine.render(testing.allocator, "<t-var name=\"msg\" transform=\"reverse\" />", &ctx, resolver.loader(), .{});
@@ -550,7 +548,7 @@ test "engine renderOwned returns RenderResult" {
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "x", .{ .string = "42" });
+    try ctx.put(testing.allocator, "x", .{ .string = "42" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try engine.renderOwned(testing.allocator, "<t-var name=\"x\" />", &ctx, resolver.loader(), .{});
@@ -619,8 +617,8 @@ test "engine HTMX fragment pattern" {
     defer engine.deinit();
     try engine.addTemplate("user-status.html", "<div id=\"status\"><t-var name=\"name\" /> is <t-var name=\"status\" /></div>");
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "name", .{ .string = "Alice" });
-    try ctx.putData(testing.allocator, "status", .{ .string = "online" });
+    try ctx.put(testing.allocator, "name", .{ .string = "Alice" });
+    try ctx.put(testing.allocator, "status", .{ .string = "online" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
     const result = try engine.renderTemplate(testing.allocator, "user-status.html", &ctx, resolver.loader(), .{});
@@ -633,7 +631,7 @@ test "engine renderTemplateToWriter equivalence" {
     defer engine.deinit();
     try engine.addTemplate("greet.html", "Hello <t-var name=\"name\" />!");
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "name", .{ .string = "World" });
+    try ctx.put(testing.allocator, "name", .{ .string = "World" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
 
@@ -651,7 +649,7 @@ test "engine renderToWriter equivalence" {
     defer engine.deinit();
     const source = "Hi <t-var name=\"x\" />";
     var ctx: Context = .{};
-    try ctx.putData(testing.allocator, "x", .{ .string = "42" });
+    try ctx.put(testing.allocator, "x", .{ .string = "42" });
     defer ctx.data.deinit(testing.allocator);
     var resolver: Resolver = .{};
 

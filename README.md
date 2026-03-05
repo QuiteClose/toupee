@@ -43,7 +43,7 @@ Zig:
 const toupee = @import("toupee");
 
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "products", .{ .list = &.{
+try ctx.put(allocator, "products", .{ .list = &.{
     .{ .map = /* { name: "Pomade", hold: "STRONG" } */ },
     .{ .map = /* { name: "Mousse", hold: "LIGHT" } */ },
 } });
@@ -85,6 +85,8 @@ Output:
 - **Thread-safe rendering** -- immutable Engine for concurrent render calls
 - **Writer API** -- render directly to any `std.io.Writer` with true top-level streaming
 - **Loader abstraction** -- `Resolver` (in-memory), `FileSystemLoader`, `ChainLoader` (try loaders in order)
+- **Directory loading** -- `Engine.loadFromDirectory()` scans a directory and caches all matching templates
+- **Dot-path context building** -- `Context.putAt("page.meta.title", value)` creates intermediate maps automatically
 - **Cache management** -- `removeTemplate()`, `clearTemplates()` for dev-mode hot-reload
 
 ## Quick Start
@@ -97,12 +99,15 @@ const toupee = @import("toupee");
 var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
-try engine.addTemplate("base.html", base_source);
-try engine.addTemplate("page.html", page_source);
+// Load all .html templates from a directory at once
+try engine.loadFromDirectory("templates", ".html");
 
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "title", .{ .string = "The Toupee Room" });
-defer ctx.data.deinit(allocator);
+// Build nested context from dot-separated paths
+try ctx.putAt(allocator, "site.title", .{ .string = "The Toupee Room" });
+try ctx.putAt(allocator, "site.author", .{ .string = "QuiteClose" });
+try ctx.put(allocator, "year", .{ .string = "2026" });
+defer ctx.deinit(allocator);
 
 var resolver: toupee.Resolver = .{};
 const html = try engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});
@@ -125,8 +130,8 @@ defer allocator.free(diags);
 
 // Serve phase (per-request, thread-safe)
 var ctx: toupee.Context = .{};
-try ctx.putData(allocator, "client", .{ .string = "Marcel" });
-try ctx.putData(allocator, "status", .{ .string = "seated" });
+try ctx.put(allocator, "client", .{ .string = "Marcel" });
+try ctx.put(allocator, "status", .{ .string = "seated" });
 defer ctx.data.deinit(allocator);
 
 try engine.renderTemplateToWriter(allocator, "client-status.html", &ctx, resolver.loader(), .{}, response.writer());

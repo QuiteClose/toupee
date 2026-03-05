@@ -9,7 +9,7 @@ pub const FileSystemLoader = @This();
 
 base_path: []const u8,
 
-const max_template_size = 10 * 1024 * 1024;
+pub const max_template_size = 10 * 1024 * 1024;
 
 /// Returns a `Loader` backed by this filesystem directory.
 pub fn loader(self: *const FileSystemLoader) Loader {
