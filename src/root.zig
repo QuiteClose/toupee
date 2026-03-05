@@ -83,6 +83,7 @@ pub const Engine = struct {
     pub fn deinit(self: *Engine) void {
         var it = self.cache.iterator();
         while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
             self.allocator.free(entry.value_ptr.source);
             entry.value_ptr.arena.deinit();
         }
@@ -96,18 +97,23 @@ pub const Engine = struct {
     }
 
     /// Parses `source` and caches the IR under `name`. Replaces existing entry if present.
+    /// The engine dupes both `name` and `source`; callers need not keep them alive.
     /// Setup-phase only; not thread-safe.
     pub fn addTemplate(self: *Engine, name: []const u8, source: []const u8) !void {
-        const duped = try self.allocator.dupe(u8, source);
-        errdefer self.allocator.free(duped);
-        var result = try Parser.parse(self.allocator, duped, .{ .template_name = name });
+        const duped_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(duped_name);
+        const duped_source = try self.allocator.dupe(u8, source);
+        errdefer self.allocator.free(duped_source);
+        var result = try Parser.parse(self.allocator, duped_source, .{ .template_name = duped_name });
         errdefer result.deinit();
-        const gop = try self.cache.getOrPut(self.allocator, name);
+        const gop = try self.cache.getOrPut(self.allocator, duped_name);
         if (gop.found_existing) {
+            self.allocator.free(gop.key_ptr.*);
             self.allocator.free(gop.value_ptr.source);
             gop.value_ptr.arena.deinit();
         }
-        gop.value_ptr.* = .{ .nodes = result.nodes, .source = duped, .arena = result.arena };
+        gop.key_ptr.* = duped_name;
+        gop.value_ptr.* = .{ .nodes = result.nodes, .source = duped_source, .arena = result.arena };
     }
 
     /// Renders a cached template by name. Uses pre-parsed IR; no parse cost per call.
@@ -158,6 +164,7 @@ pub const Engine = struct {
     /// Removes a template from the cache. No-op if not present. Setup-phase only; not thread-safe.
     pub fn removeTemplate(self: *Engine, name: []const u8) void {
         if (self.cache.fetchSwapRemove(name)) |entry| {
+            self.allocator.free(entry.key);
             self.allocator.free(entry.value.source);
             entry.value.arena.deinit();
         }
@@ -167,10 +174,48 @@ pub const Engine = struct {
     pub fn clearTemplates(self: *Engine) void {
         var it = self.cache.iterator();
         while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
             self.allocator.free(entry.value_ptr.source);
             entry.value_ptr.arena.deinit();
         }
         self.cache.clearRetainingCapacity();
+    }
+
+    const max_template_size = 10 * 1024 * 1024;
+
+    /// Recursively scans `base_path` and loads all files matching `extension` into
+    /// the template cache. Template names are paths relative to `base_path`
+    /// (e.g. `"layouts/page.html"`). Files are loaded in sorted order for
+    /// deterministic results. Setup-phase only; not thread-safe.
+    pub fn loadFromDirectory(self: *Engine, base_path: []const u8, extension: []const u8) !void {
+        var dir = try std.fs.cwd().openDir(base_path, .{ .iterate = true });
+        defer dir.close();
+
+        var paths: std.ArrayListUnmanaged([]const u8) = .{};
+        defer {
+            for (paths.items) |p| self.allocator.free(p);
+            paths.deinit(self.allocator);
+        }
+
+        var walker = try dir.walk(self.allocator);
+        defer walker.deinit();
+        while (try walker.next()) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.basename, extension)) continue;
+            try paths.append(self.allocator, try self.allocator.dupe(u8, entry.path));
+        }
+
+        std.mem.sortUnstable([]const u8, paths.items, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return std.mem.order(u8, a, b) == .lt;
+            }
+        }.lessThan);
+
+        for (paths.items) |rel_path| {
+            const contents = try dir.readFileAlloc(self.allocator, rel_path, max_template_size);
+            defer self.allocator.free(contents);
+            try self.addTemplate(rel_path, contents);
+        }
     }
 
     /// Renders a cached template, streaming output to `writer` as each top-level node completes.
@@ -727,6 +772,106 @@ test "comptime validateTemplate accepts valid templates" {
         validateTemplate("plain text with no elements");
         validateTemplate("");
     }
+}
+
+test "engine loadFromDirectory loads matching files" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    tmp.dir.writeFile(.{ .sub_path = "header.html", .data = "<header>H</header>" }) catch unreachable;
+    tmp.dir.writeFile(.{ .sub_path = "footer.html", .data = "<footer>F</footer>" }) catch unreachable;
+    tmp.dir.writeFile(.{ .sub_path = "nav.html", .data = "<nav>N</nav>" }) catch unreachable;
+
+    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(path);
+
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.loadFromDirectory(path, ".html");
+
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const r1 = try engine.renderTemplate(testing.allocator, "header.html", &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(r1);
+    try testing.expectEqualStrings("<header>H</header>", r1);
+
+    const r2 = try engine.renderTemplate(testing.allocator, "footer.html", &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(r2);
+    try testing.expectEqualStrings("<footer>F</footer>", r2);
+
+    const r3 = try engine.renderTemplate(testing.allocator, "nav.html", &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(r3);
+    try testing.expectEqualStrings("<nav>N</nav>", r3);
+}
+
+test "engine loadFromDirectory filters by extension" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    tmp.dir.writeFile(.{ .sub_path = "page.html", .data = "<p>yes</p>" }) catch unreachable;
+    tmp.dir.writeFile(.{ .sub_path = "style.css", .data = "body {}" }) catch unreachable;
+    tmp.dir.writeFile(.{ .sub_path = "data.json", .data = "{}" }) catch unreachable;
+
+    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(path);
+
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.loadFromDirectory(path, ".html");
+
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+    const r = try engine.renderTemplate(testing.allocator, "page.html", &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(r);
+    try testing.expectEqualStrings("<p>yes</p>", r);
+
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "style.css", &ctx, resolver.loader(), .{}));
+    try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "data.json", &ctx, resolver.loader(), .{}));
+}
+
+test "engine loadFromDirectory nested subdirectories" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    tmp.dir.makePath("layouts/default") catch unreachable;
+    tmp.dir.writeFile(.{ .sub_path = "layouts/base.html", .data = "base" }) catch unreachable;
+    tmp.dir.writeFile(.{ .sub_path = "layouts/default/page.html", .data = "page" }) catch unreachable;
+
+    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(path);
+
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.loadFromDirectory(path, ".html");
+
+    var ctx: Context = .{};
+    var resolver: Resolver = .{};
+
+    const r1 = try engine.renderTemplate(testing.allocator, "layouts/base.html", &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(r1);
+    try testing.expectEqualStrings("base", r1);
+
+    const r2 = try engine.renderTemplate(testing.allocator, "layouts/default/page.html", &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(r2);
+    try testing.expectEqualStrings("page", r2);
+}
+
+test "engine loadFromDirectory empty directory" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(path);
+
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.loadFromDirectory(path, ".html");
+
+    try testing.expectEqual(@as(usize, 0), engine.cache.count());
+}
+
+test "engine loadFromDirectory non-existent directory" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    const result = engine.loadFromDirectory("/tmp/toupee-nonexistent-dir-test", ".html");
+    try testing.expect(std.meta.isError(result));
 }
 
 test {
