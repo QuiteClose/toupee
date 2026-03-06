@@ -166,42 +166,105 @@ Splits a string by separator into newline-separated lines.
 
 ## Numeric transforms
 
+All numeric transforms use best-effort coercion: valid numbers parse normally, `"true"` → `1`, `"false"` → `0`, anything unparseable → `0`. They never error on unexpected input.
+
 ### `abs`
 
-Returns the absolute value of an integer.
+Returns the absolute value.
 
 ```
 "-42" → "42"
 "42" → "42"
+"-3.7" → "3.7"
 ```
 
 ### `floor`
 
-Returns the floor of a float.
+Returns the floor (rounds toward negative infinity).
 
 ```
 "3.7" → "3"
 "3.0" → "3"
+"hello" → "0"
 ```
 
 ### `ceil`
 
-Returns the ceiling of a float.
+Returns the ceiling (rounds toward positive infinity).
 
 ```
 "3.2" → "4"
 "3.0" → "3"
+"hello" → "0"
 ```
 
-## Other transforms
+## Type-casting transforms
 
-### `date`
+### `int`
 
-Placeholder for date formatting. Currently passes the value through unchanged.
+Parses as a number and truncates to an integer.
 
 ```
-"2024-01-15" → "2024-01-15"
+"29.99" → "29"
+"true" → "1"
+"hello" → "0"
 ```
+
+### `float`
+
+Parses as a number with minimal representation (trailing zeros stripped).
+
+```
+"42" → "42"
+"29.990" → "29.99"
+```
+
+### `decimal:N`
+
+Parses as a number and formats with exactly N decimal places.
+
+```
+"42" | decimal:2 → "42.00"
+"29.999" | decimal:2 → "29.99"
+"3.1" | decimal:4 → "3.1000"
+```
+
+### `bool`
+
+Converts to a boolean string. `""`, `"false"`, and `"0"` are false; everything else is true.
+
+```
+"hello" → "true"
+"" → "false"
+"0" → "false"
+"false" → "false"
+```
+
+## Date transforms
+
+### `date:format`
+
+Formats an ISO date string using strftime-style specifiers. Without a format argument, passes the value through unchanged.
+
+Supported specifiers:
+- `%Y` — 4-digit year
+- `%m` — 2-digit month
+- `%d` — 2-digit day
+- `%e` — day without leading zero
+- `%B` — full month name (January, February, ...)
+- `%b` — abbreviated month name (Jan, Feb, ...)
+- `%H` — 2-digit hour
+- `%M` — 2-digit minute
+- `%S` — 2-digit second
+- `%%` — literal `%`
+
+```
+"2026-03-05" | date:%B %e, %Y → "March 5, 2026"
+"2026-03-05" | date:%d/%m/%Y → "05/03/2026"
+"2026-03-05T14:30:00" | date:%Y-%m-%d %H:%M:%S → "2026-03-05 14:30:00"
+```
+
+Input must be ISO 8601 format (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`). Invalid dates are returned unchanged.
 
 ## Custom transforms
 

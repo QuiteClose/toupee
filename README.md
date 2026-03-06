@@ -79,7 +79,8 @@ Output:
 - **Attribute binding** -- `<a t-var:href="post.url">` binds variables to HTML attributes
 - **Conditionals** -- `<t-if>` with `equals`, `contains`, `starts-with`, `ends-with`, `matches` (glob)
 - **Loops** -- `<t-for>` with sort, filter, limit/offset, `loop.first`/`loop.last`/`loop.length`, for-else
-- **Transforms** -- `upper`, `slugify`, `truncate:N`, `escape`, `js_escape`, `url_encode`, `join`, `split`, and more (pipe-chained)
+- **Transforms** -- `upper`, `slugify`, `truncate:N`, `escape`, `js_escape`, `url_encode`, `join`, `split`, `int`, `float`, `decimal:N`, `bool`, `date:format`, and more (pipe-chained)
+- **Auto-coercion** -- integers, floats, and booleans render as strings automatically; no manual conversion needed
 - **Capture** -- `<t-let>` renders content into a scoped variable
 - **Strict mode** -- errors on undefined variables (default on, opt out per render)
 - **Startup validation** -- `Engine.validate()` catches missing templates before serving traffic
@@ -148,7 +149,7 @@ const html = try toupee.render(allocator, source, &ctx, resolver.loader(), .{});
 ## Build and Test
 
 ```
-zig build test    # over 400 tests (integration + unit)
+zig build test    # over 470 tests (integration + unit)
 zig build bench   # parse/render benchmarks (ReleaseFast)
 zig build fuzz    # fuzz testing for parser and renderer
 ```

@@ -75,9 +75,18 @@ Transforms are piped with `|`. Arguments follow the transform name with `:`.
 
 See the [Transform Reference](transforms.dj) for all built-in transforms.
 
+## Auto-coercion
+
+All scalar Value types are automatically coerced to strings when rendered:
+
+- Integers render as decimal: `42` → `"42"`
+- Floats use minimal representation: `3.14` → `"3.14"`, `5.0` → `"5"`
+- Booleans render as `"true"` or `"false"`
+- `nil` values render empty (fall through to default body if present)
+- Lists and maps render empty (fall through to default body if present)
+
 ## Edge cases
 
 - Missing variable without a default body returns an `UndefinedVariable` error
 - Empty string values are valid and render as empty
-- Non-string values (integers, booleans, lists, maps) are not auto-coerced to strings; use explicit string values or the `default` transform
 - The default body of `<t-var>` is HTML-escaped; use `<t-raw>` with a default body for unescaped fallback content

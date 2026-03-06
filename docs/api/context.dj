@@ -82,10 +82,22 @@ pub const Value = union(enum) {
     string: []const u8,
     boolean: bool,
     integer: i64,
+    float: f64,
     list: []const Value,
     map: Map,
+    nil,
 };
 ```
+
+### Auto-coercion
+
+All scalar Value types (`string`, `boolean`, `integer`, `float`) are automatically coerced to strings when rendered by `<t-var>` or `<t-raw>`. No explicit conversion is needed:
+
+- Integers render as decimal: `42` → `"42"`
+- Floats use minimal representation: `3.14` → `"3.14"`, `5.0` → `"5"`
+- Booleans render as `"true"` or `"false"`
+- `nil` renders empty (falls through to default body if present)
+- Lists and maps render empty (falls through to default body if present)
 
 ### String values
 
@@ -93,7 +105,12 @@ pub const Value = union(enum) {
 const v: Value = .{ .string = "hello" };
 ```
 
-Only string values are output by `<t-var>` and `<t-raw>`. Other types are used for data structure and conditional logic.
+### Numeric values
+
+```zig
+const count: Value = .{ .integer = 42 };
+const price: Value = .{ .float = 29.99 };
+```
 
 ### Maps (nested objects)
 

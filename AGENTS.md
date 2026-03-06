@@ -40,7 +40,7 @@ The Engine follows a two-phase usage pattern:
 | `Context.zig` | `Context`, `Loader`, `Resolver`, `ErrorDetail`, `IncludeEntry`, `RenderError` |
 | `FileSystemLoader.zig` | `FileSystemLoader`: loads template sources from a filesystem directory |
 | `ChainLoader.zig` | `ChainLoader`: tries multiple `Loader`s in sequence, returns first match |
-| `Value.zig` | `Value` tagged union (`string`, `boolean`, `integer`, `list`, `map`, `nil`), dot-path resolution |
+| `Value.zig` | `Value` tagged union (`string`, `boolean`, `integer`, `float`, `list`, `map`, `nil`), dot-path resolution, auto-coercion via `toStringValue` |
 | `diagnostic.zig` | `Diagnostic` (validation results), `setError` (shared error-reporting for Parser and Renderer), `extractSourceLine`, `computeCaretLen`, `levenshtein` |
 | `transform.zig` | `Registry`, `TransformFn`, built-in transforms (including `js_escape` for JavaScript string contexts) |
 | `html.zig` | Tag parsing, attribute extraction, HTML escaping |
@@ -194,8 +194,9 @@ Applied via `transform` attribute with pipe chaining:
 **String:** `upper`, `lower`, `capitalize`, `trim`, `slugify`, `truncate:N`, `replace:find:replacement`, `default:fallback`
 **HTML/URL/JS:** `escape`, `url_encode`, `url_decode`, `js_escape`
 **Collection:** `join:separator`, `split:separator`, `first:N`, `last:N`
-**Numeric:** `length`, `abs`, `floor`, `ceil`
-**Date:** `date` (placeholder pass-through)
+**Numeric:** `length`, `abs`, `floor`, `ceil` (best-effort coercion on all numeric transforms)
+**Type-casting:** `int`, `float`, `decimal:N`, `bool`
+**Date:** `date:format` (strftime-style: `%Y`, `%m`, `%d`, `%e`, `%B`, `%b`, `%H`, `%M`, `%S`)
 
 Custom transforms registered via `Engine.registerTransform()`. Signature: `*const fn (Allocator, []const u8, []const []const u8) RenderError![]u8`.
 
@@ -213,7 +214,7 @@ Custom transforms registered via `Engine.registerTransform()`. Signature: `*cons
 - `put(key, value)` — inserts at a top-level key.
 - `putAt(path, value)` — inserts at a dot-separated path (e.g. `"page.meta.title"`), creating intermediate maps as needed. Returns `error.PathConflict` if an intermediate key exists but is not a `.map`. This is the primary method for building context from structured data (frontmatter, config, collections).
 
-`Value` is a tagged union: `string`, `boolean`, `integer`, `list`, `map`, `nil`. Variables resolve to `Value` via dot-path splitting on `.`.
+`Value` is a tagged union: `string`, `boolean`, `integer`, `float`, `list`, `map`, `nil`. Variables resolve to `Value` via dot-path splitting on `.`. All scalar types are auto-coerced to strings when rendered (integers as decimal, floats with minimal representation, booleans as `"true"`/`"false"`).
 
 `Loader` is a runtime-polymorphic interface (fat-pointer pattern) for template source resolution. Three implementations:
 
@@ -269,7 +270,7 @@ External `.test` files in `test/`, loaded at runtime by `test_runner.zig`. HTML 
 
 Context JSON: `"data"` for variables (nested maps/lists/strings), `"templates"` for named templates available via include/extend.
 
-Over 400 tests across integration `.test` files and unit tests in source modules.
+Over 470 tests across integration `.test` files and unit tests in source modules.
 
 ## Build Commands
 

@@ -51,7 +51,7 @@ Insert a variable value with HTML escaping.
 <t-var name="title" transform="upper" />
 ```
 
-Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use dot-path resolution --- `style.name` resolves through the data hierarchy (style -> name).
+Produces `UndefinedVariable` if the variable is missing and no default body or `default` transform is provided. Variable names use dot-path resolution --- `style.name` resolves through the data hierarchy (style -> name). All scalar Value types (string, integer, float, boolean) are auto-coerced to strings for rendering.
 
 === `<t-raw>`
 
@@ -250,13 +250,20 @@ Applied via `transform="name"` on `<t-var>`, `<t-raw>`, and `<t-let>`. Multiple 
 === Numeric transforms
 
 - `length` --- string length as a number
-- `abs` --- absolute value
-- `floor` --- floor (round down)
-- `ceil` --- ceiling (round up)
+- `abs` --- absolute value (best-effort coercion)
+- `floor` --- floor/round down (best-effort coercion)
+- `ceil` --- ceiling/round up (best-effort coercion)
 
-=== Other transforms
+=== Type-casting transforms
 
-- `date` --- date pass-through (reserved for future formatting)
+- `int` --- parse as number and truncate to integer
+- `float` --- parse as number with minimal representation
+- `decimal:N` --- format with exactly N decimal places
+- `bool` --- convert to `"true"` or `"false"`
+
+=== Date transforms
+
+- `date:format` --- format ISO date with strftime-style specifiers (`%Y`, `%m`, `%d`, `%e`, `%B`, `%b`, `%H`, `%M`, `%S`, `%%`)
 
 == Errors
 

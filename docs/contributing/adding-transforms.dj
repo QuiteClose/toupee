@@ -98,8 +98,12 @@ expected
 | `abs` | none | `"-5"` → `"5"` |
 | `floor` | none | `"3.7"` → `"3"` |
 | `ceil` | none | `"3.2"` → `"4"` |
+| `int` | none | `"29.99"` → `"29"` |
+| `float` | none | `"42"` → `"42"` |
+| `decimal` | places | `"42" \| decimal:2` → `"42.00"` |
+| `bool` | none | `"hello"` → `"true"` |
 | `first` | count (default 1) | `"hello" \| first:2` → `"he"` |
 | `last` | count (default 1) | `"hello" \| last:2` → `"lo"` |
 | `join` | separator | newline-separated → joined |
 | `split` | separator | joined → newline-separated |
-| `date` | none | passthrough (placeholder) |
+| `date` | format | `"2026-03-05" \| date:%B %e, %Y` → `"March 5, 2026"` |
