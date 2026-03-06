@@ -4,12 +4,13 @@ const Allocator = std.mem.Allocator;
 /// String-keyed map of Value. Keys are unique; key ownership follows the allocator that inserted them.
 pub const Map = std.StringArrayHashMapUnmanaged(Value);
 
-/// Tagged union of string, boolean, integer, list, map, or nil. `resolve()` navigates dot-separated
-/// paths through nested maps and list indices (e.g. `"page.title"`, `"items.0.name"`).
+/// Tagged union of string, boolean, integer, float, list, map, or nil. `resolve()` navigates
+/// dot-separated paths through nested maps and list indices (e.g. `"page.title"`, `"items.0.name"`).
 pub const Value = union(enum) {
     string: []const u8,
     boolean: bool,
     integer: i64,
+    float: f64,
     list: []const Value,
     map: Map,
     nil,
@@ -63,22 +64,34 @@ pub const Value = union(enum) {
         };
     }
 
+    /// Type narrowing: returns the float payload if this Value is .float, else null.
+    pub fn asFloat(self: Value) ?f64 {
+        return switch (self) {
+            .float => |f| f,
+            else => null,
+        };
+    }
+
     pub fn isTruthy(self: Value) bool {
         return switch (self) {
             .string => |s| s.len > 0,
             .boolean => |b| b,
             .integer => |i| i != 0,
+            .float => |f| f != 0.0,
             .list => |l| l.len > 0,
             .map => |m| m.count() > 0,
             .nil => false,
         };
     }
 
-    pub fn toStringValue(self: Value, a: Allocator) !?[]const u8 {
+    /// Converts any scalar value to its string representation. Returns null for
+    /// list, map, and nil. Floats use minimal representation (trailing zeros stripped).
+    pub fn toStringValue(self: Value, a: Allocator) Allocator.Error!?[]const u8 {
         return switch (self) {
             .string => |s| s,
             .boolean => |b| if (b) "true" else "false",
             .integer => |i| try std.fmt.allocPrint(a, "{d}", .{i}),
+            .float => |f| try formatFloat(a, f),
             .nil => null,
             .list, .map => null,
         };
@@ -91,6 +104,7 @@ pub const Value = union(enum) {
             .string => |s| std.mem.eql(u8, s, other.string),
             .boolean => |b| b == other.boolean,
             .integer => |i| i == other.integer,
+            .float => |f| f == other.float,
             .nil => true,
             .list => |l| {
                 if (l.len != other.list.len) return false;
@@ -109,6 +123,20 @@ pub fn mapFromSlice(a: Allocator, pairs: []const struct { []const u8, Value }) !
     var m: Map = .{};
     for (pairs) |pair| try m.put(a, pair[0], pair[1]);
     return .{ .map = m };
+}
+
+/// Formats an f64 with minimal representation: strips trailing zeros and trailing
+/// decimal point. Returns a heap-allocated string. Examples: 3.14 -> "3.14",
+/// 5.0 -> "5", 100.10 -> "100.1".
+fn formatFloat(a: Allocator, f: f64) Allocator.Error![]const u8 {
+    const buf = try std.fmt.allocPrint(a, "{d}", .{f});
+    if (std.mem.indexOfScalar(u8, buf, '.')) |dot| {
+        var end = buf.len;
+        while (end > dot + 1 and buf[end - 1] == '0') end -= 1;
+        if (end == dot + 1) end = dot;
+        if (end < buf.len) return a.realloc(buf, end);
+    }
+    return buf;
 }
 
 // ---- Tests ----
@@ -310,4 +338,51 @@ test "list equality" {
     const c = [_]Value{ .{ .string = "y" }, .{ .integer = 1 } };
     try testing.expect((Value{ .list = &a }).eql(.{ .list = &b }));
     try testing.expect(!(Value{ .list = &a }).eql(.{ .list = &c }));
+}
+
+test "float values" {
+    const pos: Value = .{ .float = 3.14 };
+    const zero: Value = .{ .float = 0.0 };
+    const neg: Value = .{ .float = -1.5 };
+    try testing.expect(pos.isTruthy());
+    try testing.expect(!zero.isTruthy());
+    try testing.expect(neg.isTruthy());
+    try testing.expectEqual(@as(f64, 3.14), pos.asFloat().?);
+    try testing.expect(zero.asFloat() != null);
+    try testing.expect(pos.asString() == null);
+}
+
+test "float equality" {
+    try testing.expect((Value{ .float = 3.14 }).eql(.{ .float = 3.14 }));
+    try testing.expect(!(Value{ .float = 3.14 }).eql(.{ .float = 2.71 }));
+    try testing.expect(!(Value{ .float = 1.0 }).eql(.{ .integer = 1 }));
+}
+
+test "float toStringValue" {
+    const f1: Value = .{ .float = 3.14 };
+    const s1 = (try f1.toStringValue(testing.allocator)).?;
+    defer testing.allocator.free(s1);
+    try testing.expectEqualStrings("3.14", s1);
+
+    const f2: Value = .{ .float = 5.0 };
+    const s2 = (try f2.toStringValue(testing.allocator)).?;
+    defer testing.allocator.free(s2);
+    try testing.expectEqualStrings("5", s2);
+
+    const f3: Value = .{ .float = 100.10 };
+    const s3 = (try f3.toStringValue(testing.allocator)).?;
+    defer testing.allocator.free(s3);
+    try testing.expectEqualStrings("100.1", s3);
+
+    const f4: Value = .{ .float = -7.5 };
+    const s4 = (try f4.toStringValue(testing.allocator)).?;
+    defer testing.allocator.free(s4);
+    try testing.expectEqualStrings("-7.5", s4);
+}
+
+test "float resolve returns null for dot-path" {
+    const v: Value = .{ .float = 3.14 };
+    try testing.expect(v.resolve("key") == null);
+    const self_resolved = v.resolve("") orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(f64, 3.14), self_resolved.asFloat().?);
 }

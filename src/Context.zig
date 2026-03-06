@@ -11,7 +11,8 @@ pub const IncludeEntry = struct {
 };
 
 /// Rich error context populated by the Renderer (or Parser) on failure. Caller must allocate
-/// and pass a pointer via `ctx.err_detail`. Fields are only valid after a render or parse error.
+/// and pass a pointer via `ctx.err_detail`. String fields are copied into an inline buffer
+/// so they remain valid after the render arena is freed.
 pub const ErrorDetail = struct {
     line: usize = 0,
     column: usize = 0,
@@ -25,6 +26,8 @@ pub const ErrorDetail = struct {
     /// Most recent 16 include frames for error context. Smaller than max_depth
     /// by design: error messages only need the innermost frames.
     include_stack_buf: [16]IncludeEntry = [_]IncludeEntry{.{}} ** 16,
+    string_buf: [2048]u8 = undefined,
+    string_used: usize = 0,
 
     pub const Kind = enum {
         none,
@@ -34,6 +37,17 @@ pub const ErrorDetail = struct {
         malformed_element,
         duplicate_slot,
     };
+
+    /// Copies `s` into the inline buffer and returns a slice into it. If the
+    /// buffer is full, falls back to returning the original (borrowed) slice.
+    pub fn store(self: *ErrorDetail, s: []const u8) []const u8 {
+        if (s.len == 0) return s;
+        if (self.string_used + s.len > self.string_buf.len) return s;
+        const start = self.string_used;
+        @memcpy(self.string_buf[start .. start + s.len], s);
+        self.string_used += s.len;
+        return self.string_buf[start .. start + s.len];
+    }
 
     /// Returns the include stack slice (innermost frames first).
     pub fn includeStack(self: *const ErrorDetail) []const IncludeEntry {
@@ -165,7 +179,10 @@ pub const Context = struct {
     }
 
     /// Creates a child context backed by `backing` allocator, copying data from `parent`.
-    /// Attrs, slots, and err_detail are shared by reference (not copied).
+    /// `data` entries are shallow-copied into the child's arena. `attrs`, `slots`, and
+    /// `err_detail` are shared by reference -- the child and parent point to the same
+    /// underlying storage. Callers must not mutate `attrs` or `slots` through the child
+    /// without first reassigning them to a freshly-built map (as the Renderer does).
     pub fn initFrom(backing: Allocator, parent: *const Context) Allocator.Error!Context {
         var child = init(backing);
         const a = child.allocator();
@@ -261,8 +278,8 @@ pub const Loader = struct {
     getSourceFn: *const fn (*const anyopaque, Allocator, []const u8) Allocator.Error!?[]const u8,
 
     /// Returns the template source for `name`, or null if not found.
-    /// The allocator is provided for implementations that need to read from external sources;
-    /// in-memory loaders may ignore it.
+    /// **Ownership:** The returned slice is allocated using `a` and owned by the caller.
+    /// The caller must free it with `a.free(result)` when done (or let an arena handle it).
     pub fn getSource(self: Loader, a: Allocator, name: []const u8) Allocator.Error!?[]const u8 {
         return self.getSourceFn(self.ptr, a, name);
     }
@@ -292,9 +309,10 @@ pub const Resolver = struct {
         };
     }
 
-    fn resolverGetSource(ptr: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]const u8 {
+    fn resolverGetSource(ptr: *const anyopaque, a: Allocator, name: []const u8) Allocator.Error!?[]const u8 {
         const self: *const Resolver = @ptrCast(@alignCast(ptr));
-        return self.get(name);
+        const source = self.get(name) orelse return null;
+        return try a.dupe(u8, source);
     }
 };
 
@@ -316,8 +334,9 @@ test "Resolver.loader returns stored source" {
     defer resolver.deinit(testing.allocator);
 
     const l = resolver.loader();
-    const source = try l.getSource(testing.allocator, "page.html");
-    try testing.expectEqualStrings("<p>hello</p>", source.?);
+    const source = (try l.getSource(testing.allocator, "page.html")).?;
+    defer testing.allocator.free(source);
+    try testing.expectEqualStrings("<p>hello</p>", source);
 }
 
 test "Resolver.loader returns null for missing template" {
@@ -327,15 +346,18 @@ test "Resolver.loader returns null for missing template" {
     try testing.expect(source == null);
 }
 
-test "Resolver.loader ignores allocator (zero-copy)" {
+test "Resolver.loader returns owned copies" {
     var resolver: Resolver = .{};
     try resolver.put(testing.allocator, "x.html", "content");
     defer resolver.deinit(testing.allocator);
 
     const l = resolver.loader();
-    const s1 = try l.getSource(testing.allocator, "x.html");
-    const s2 = try l.getSource(testing.allocator, "x.html");
-    try testing.expect(s1.?.ptr == s2.?.ptr);
+    const s1 = (try l.getSource(testing.allocator, "x.html")).?;
+    defer testing.allocator.free(s1);
+    const s2 = (try l.getSource(testing.allocator, "x.html")).?;
+    defer testing.allocator.free(s2);
+    try testing.expectEqualStrings(s1, s2);
+    try testing.expect(s1.ptr != s2.ptr);
 }
 
 test "putAt simple key" {

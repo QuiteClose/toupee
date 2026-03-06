@@ -253,11 +253,14 @@ pub const Engine = struct {
         var diags: std.ArrayListUnmanaged(Diagnostic) = .{};
         errdefer diags.deinit(a);
 
+        var loader_arena = std.heap.ArenaAllocator.init(a);
+        defer loader_arena.deinit();
+
         var cache_it = self.cache.iterator();
         while (cache_it.next()) |entry| {
             const tmpl_name = entry.key_ptr.*;
             const nodes = entry.value_ptr.nodes;
-            try collectDiagnostics(a, tmpl_name, nodes, self, loader, &diags);
+            try collectDiagnostics(a, loader_arena.allocator(), tmpl_name, nodes, self, loader, &diags);
         }
 
         return diags.toOwnedSlice(a);
@@ -265,6 +268,7 @@ pub const Engine = struct {
 
     fn collectDiagnostics(
         a: Allocator,
+        loader_a: Allocator,
         tmpl_name: []const u8,
         nodes: []const Node.Node,
         engine: *const Engine,
@@ -274,38 +278,38 @@ pub const Engine = struct {
         for (nodes) |node| {
             switch (node) {
                 .include => |inc| {
-                    if (engine.cache.get(inc.template) == null and (try loader.getSource(a, inc.template)) == null) {
+                    if (engine.cache.get(inc.template) == null and (try loader.getSource(loader_a, inc.template)) == null) {
                         try diags.append(a, .{
                             .template = tmpl_name,
                             .kind = .err,
                             .message = inc.template,
                         });
                     }
-                    try collectDiagnostics(a, tmpl_name, inc.anonymous_body, engine, loader, diags);
-                    for (inc.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, inc.anonymous_body, engine, loader, diags);
+                    for (inc.defines) |def| try collectDiagnostics(a, loader_a, tmpl_name, def.body, engine, loader, diags);
                 },
                 .extend => |ext| {
-                    if (engine.cache.get(ext.template) == null and (try loader.getSource(a, ext.template)) == null) {
+                    if (engine.cache.get(ext.template) == null and (try loader.getSource(loader_a, ext.template)) == null) {
                         try diags.append(a, .{
                             .template = tmpl_name,
                             .kind = .err,
                             .message = ext.template,
                         });
                     }
-                    for (ext.defines) |def| try collectDiagnostics(a, tmpl_name, def.body, engine, loader, diags);
+                    for (ext.defines) |def| try collectDiagnostics(a, loader_a, tmpl_name, def.body, engine, loader, diags);
                 },
                 .conditional => |cond| {
-                    for (cond.branches) |branch| try collectDiagnostics(a, tmpl_name, branch.body, engine, loader, diags);
-                    try collectDiagnostics(a, tmpl_name, cond.else_body, engine, loader, diags);
+                    for (cond.branches) |branch| try collectDiagnostics(a, loader_a, tmpl_name, branch.body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, cond.else_body, engine, loader, diags);
                 },
                 .loop => |loop| {
-                    try collectDiagnostics(a, tmpl_name, loop.body, engine, loader, diags);
-                    try collectDiagnostics(a, tmpl_name, loop.else_body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, loop.body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, loop.else_body, engine, loader, diags);
                 },
-                .slot => |slot| try collectDiagnostics(a, tmpl_name, slot.default_body, engine, loader, diags),
-                .variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, loader, diags),
-                .raw_variable => |v| try collectDiagnostics(a, tmpl_name, v.default_body, engine, loader, diags),
-                .let_binding => |lb| try collectDiagnostics(a, tmpl_name, lb.body, engine, loader, diags),
+                .slot => |slot| try collectDiagnostics(a, loader_a, tmpl_name, slot.default_body, engine, loader, diags),
+                .variable => |v| try collectDiagnostics(a, loader_a, tmpl_name, v.default_body, engine, loader, diags),
+                .raw_variable => |v| try collectDiagnostics(a, loader_a, tmpl_name, v.default_body, engine, loader, diags),
+                .let_binding => |lb| try collectDiagnostics(a, loader_a, tmpl_name, lb.body, engine, loader, diags),
                 else => {},
             }
         }
@@ -747,6 +751,24 @@ test "engine validate empty cache returns no diagnostics" {
     defer engine.deinit();
     var resolver: Resolver = .{};
     const diags = try engine.validate(testing.allocator, resolver.loader());
+    defer testing.allocator.free(diags);
+    try testing.expectEqual(@as(usize, 0), diags.len);
+}
+
+test "engine validate frees loader-allocated sources" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    tmp.dir.writeFile(.{ .sub_path = "nav.html", .data = "<nav>links</nav>" }) catch unreachable;
+
+    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(path);
+
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "<t-include template=\"nav.html\" />");
+
+    const fsl = FileSystemLoader{ .base_path = path };
+    const diags = try engine.validate(testing.allocator, fsl.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 0), diags.len);
 }

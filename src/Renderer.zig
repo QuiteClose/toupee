@@ -160,8 +160,17 @@ fn renderVariable(
 ) RenderError!void {
     var value: []const u8 = "";
 
-    if (ctx.resolveString(v.name)) |val| {
-        value = val;
+    if (ctx.resolve(v.name)) |resolved| {
+        if (try resolved.toStringValue(state.a)) |val| {
+            value = val;
+        } else if (v.has_body) {
+            if (v.default_body.len > 0) value = try renderNodes(state, v.default_body, ctx, depth);
+        } else if (v.transform.len > 0 and hasDefaultTransform(v.transform)) {
+            // default transform will provide the value
+        } else if (state.strict) {
+            setRichError(state, ctx, v.source_pos, .undefined_variable, v.name);
+            return error.UndefinedVariable;
+        }
     } else if (v.has_body) {
         if (v.default_body.len > 0) value = try renderNodes(state, v.default_body, ctx, depth);
     } else if (v.transform.len > 0 and hasDefaultTransform(v.transform)) {
@@ -296,7 +305,7 @@ fn renderExtendLeaf(state: State, nodes: []const Node, ctx: *Context, slots: *st
 
 fn renderConditional(state: State, cond: N.Conditional, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
     for (cond.branches) |branch| {
-        if (evaluateCondition(branch.condition, ctx)) {
+        if (try evaluateCondition(state, branch.condition, ctx)) {
             const rendered = try renderNodes(state, branch.body, ctx, depth);
             try out.appendSlice(state.a, rendered);
             return;
@@ -308,7 +317,7 @@ fn renderConditional(state: State, cond: N.Conditional, ctx: *Context, depth: us
     }
 }
 
-fn evaluateCondition(cond: N.Condition, ctx: *const Context) bool {
+fn evaluateCondition(state: State, cond: N.Condition, ctx: *const Context) RenderError!bool {
     if (cond.source == .slot) {
         const exists = ctx.hasSlot(cond.name);
         return switch (cond.comparison) {
@@ -320,7 +329,7 @@ fn evaluateCondition(cond: N.Condition, ctx: *const Context) bool {
         return evalComparison(cond.comparison, ctx.getAttr(cond.name));
     }
     const resolved = ctx.resolve(cond.name);
-    const val_str = if (resolved) |rv| rv.asString() orelse "" else "";
+    const val_str = if (resolved) |rv| (try rv.toStringValue(state.a)) orelse "" else "";
     return switch (cond.comparison) {
         .exists => resolved != null,
         .not_exists => resolved == null,
@@ -411,7 +420,10 @@ fn renderBoundTag(state: State, bt: N.BoundTag, ctx: *const Context, out: *std.A
         switch (segment) {
             .literal => |text| try out.appendSlice(state.a, text),
             .binding => |b| {
-                const value = if (b.is_var) ctx.resolveString(b.ref_name) else ctx.getAttr(b.ref_name);
+                const value = if (b.is_var)
+                    (if (ctx.resolve(b.ref_name)) |rv| try rv.toStringValue(state.a) else null)
+                else
+                    ctx.getAttr(b.ref_name);
                 if (value) |v| {
                     try out.append(state.a, ' ');
                     try out.appendSlice(state.a, b.html_attr);
@@ -502,6 +514,10 @@ fn appendValueDebug(a: Allocator, out: *std.ArrayList(u8), value: V.Value) Rende
             const s = try std.fmt.allocPrint(a, "{d}", .{i});
             try out.appendSlice(a, s);
         },
+        .float => |f| {
+            const s = try std.fmt.allocPrint(a, "{d}", .{f});
+            try out.appendSlice(a, s);
+        },
         .list => |items| {
             try out.appendSlice(a, "[");
             for (items, 0..) |item, idx| {
@@ -534,7 +550,7 @@ fn setRichError(state: State, ctx: *Context, pos: usize, kind: Ctx.ErrorDetail.K
     if (ctx.err_detail) |ed| {
         ed.include_stack_len = state.include_stack_len;
         ed.include_stack_buf = state.include_stack_buf;
-        if (kind == .undefined_variable) ed.suggestion = findSuggestion(name, ctx);
+        if (kind == .undefined_variable) ed.suggestion = ed.store(findSuggestion(name, ctx));
     }
 }
 

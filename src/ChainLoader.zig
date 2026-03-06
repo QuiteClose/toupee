@@ -38,11 +38,13 @@ test "ChainLoader returns first match" {
     defer r2.deinit(testing.allocator);
 
     const chain = ChainLoader{ .loaders = &.{ r1.loader(), r2.loader() } };
-    const a_src = try chain.loader().getSource(testing.allocator, "a.html");
-    try testing.expectEqualStrings("from-r1", a_src.?);
+    const a_src = (try chain.loader().getSource(testing.allocator, "a.html")).?;
+    defer testing.allocator.free(a_src);
+    try testing.expectEqualStrings("from-r1", a_src);
 
-    const b_src = try chain.loader().getSource(testing.allocator, "b.html");
-    try testing.expectEqualStrings("from-r2", b_src.?);
+    const b_src = (try chain.loader().getSource(testing.allocator, "b.html")).?;
+    defer testing.allocator.free(b_src);
+    try testing.expectEqualStrings("from-r2", b_src);
 }
 
 test "ChainLoader returns null when no loader matches" {

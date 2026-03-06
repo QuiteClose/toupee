@@ -31,13 +31,13 @@ pub fn setError(
     const lc = h.computeLineCol(source, pos);
     detail.* = .{
         .kind = kind,
-        .message = name,
-        .source_file = template_name,
         .line = lc.line,
         .column = lc.column,
-        .source_line = extractSourceLine(source, pos),
         .caret_len = computeCaretLen(source, pos),
     };
+    detail.message = detail.store(name);
+    detail.source_file = detail.store(template_name);
+    detail.source_line = detail.store(extractSourceLine(source, pos));
 }
 
 /// Returns the line of source text containing the given byte position.

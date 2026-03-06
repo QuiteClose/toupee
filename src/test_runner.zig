@@ -290,6 +290,8 @@ fn jsonValueToToupeeValue(a: Allocator, jv: std.json.Value) std.mem.Allocator.Er
         },
         .bool => |b| .{ .boolean = b },
         .integer => |i| .{ .integer = i },
+        .float => |f| .{ .float = f },
+        .null => .nil,
         else => .{ .string = "" },
     };
 }
@@ -367,6 +369,10 @@ const test_file_names = [_][]const u8{
     "edge.test",
     "regression.test",
     "isolation.test",
+    "types-render.test",
+    "types-transform.test",
+    "types-compare.test",
+    "types-extremes.test",
 };
 
 test "toupee test suite" {
