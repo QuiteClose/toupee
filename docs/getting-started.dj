@@ -36,9 +36,9 @@ pub fn main() !void {
 
     const template = "<h1><t-var name=\"title\" /></h1>";
 
-    var ctx: toupee.Context = .{};
-    defer ctx.deinit(a);
-    try ctx.put(a, "title", .{ .string = "Welcome to the salon" });
+    var ctx = toupee.Context.init(a);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Welcome to the salon" });
 
     var resolver: toupee.Resolver = .{};
 
@@ -118,7 +118,7 @@ try styles.append(.{ .map = blk: {
     try m.put(a, "name", .{ .string = "Pompadour" });
     break :blk m;
 } });
-try ctx.put(a, "styles", .{ .list = styles.items });
+try ctx.put("styles", .{ .list = styles.items });
 ```
 
 ```html
@@ -172,7 +172,8 @@ All render functions return `RenderError`. Use `ErrorDetail` for source location
 
 ```zig
 var err_detail: toupee.ErrorDetail = .{};
-var ctx: toupee.Context = .{};
+var ctx = toupee.Context.init(a);
+defer ctx.deinit();
 ctx.err_detail = &err_detail;
 
 const result = toupee.render(a, template, &ctx, resolver.loader(), .{}) catch |err| {

@@ -201,15 +201,17 @@ Custom transforms registered via `Engine.registerTransform()`. Signature: `*cons
 
 ## Data Model
 
+`Context` owns an `ArenaAllocator` for all internal data. `deinit()` frees everything at once -- no recursive cleanup needed, and overwriting values (e.g. replacing a nested map with a string) cannot leak.
+
 `Context` has two scopes:
 
-- `data: Value.Map` — nested data tree (variables). Accessed via dot-path resolution (`page.title` → `data["page"]["title"]`). Caller-owned; the Renderer copies data on entry to child contexts, so the original is safe to reuse across render calls.
+- `data: Value.Map` — nested data tree (variables). Accessed via dot-path resolution (`page.title` → `data["page"]["title"]`). The Renderer copies data into child contexts via `Context.initFrom()`, so the original is safe to reuse across render calls.
 - `slots: StringArrayHashMap([]const u8)` — rendered template fragments for slot filling.
 
 `Context` provides two methods for inserting data:
 
-- `put(a, key, value)` — inserts at a top-level key.
-- `putAt(a, path, value)` — inserts at a dot-separated path (e.g. `"page.meta.title"`), creating intermediate maps as needed. Returns `error.PathConflict` if an intermediate key exists but is not a `.map`. This is the primary method for building context from structured data (frontmatter, config, collections).
+- `put(key, value)` — inserts at a top-level key.
+- `putAt(path, value)` — inserts at a dot-separated path (e.g. `"page.meta.title"`), creating intermediate maps as needed. Returns `error.PathConflict` if an intermediate key exists but is not a `.map`. This is the primary method for building context from structured data (frontmatter, config, collections).
 
 `Value` is a tagged union: `string`, `boolean`, `integer`, `list`, `map`, `nil`. Variables resolve to `Value` via dot-path splitting on `.`.
 
@@ -332,4 +334,4 @@ The website repo (`quiteclose.github.io/`) contains an earlier prototype of the 
 - **For-else `<t-else />` inside `<t-for>`** correctly tracks both `<t-if>` and `<t-for>` nesting depth to avoid false matches.
 - **Glob matching** for `matches` comparisons uses `*` (any sequence) and `?` (one character). Not regex.
 - **Engine owns template names.** `addTemplate` dupes both the name and the source, so callers need not keep them alive. This enables `loadFromDirectory` to pass transient walker paths safely.
-- **`Context.deinit` recursively frees nested maps.** Maps created by `putAt` are owned by the Context and cleaned up automatically.
+- **Context uses an arena allocator.** All data inserted via `put`/`putAt`/`setAttr`/`setSlot` is allocated from an internal arena. `deinit()` destroys the arena in one call -- no recursive map walking, no overwrite leaks. Child contexts in the Renderer use `Context.initFrom(render_arena, parent)` so their arenas are backed by the render arena.

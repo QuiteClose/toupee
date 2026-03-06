@@ -29,14 +29,10 @@ const template_source =
 ;
 
 fn buildContext(a: std.mem.Allocator) !Ctx.Context {
-    var ctx: Ctx.Context = .{};
-    var site: V.Map = .{};
-    try site.put(a, "title", .{ .string = "My Blog" });
-    try site.put(a, "name", .{ .string = "QuiteClose" });
-    try ctx.put(a, "site", .{ .map = site });
-    var page: V.Map = .{};
-    try page.put(a, "title", .{ .string = "Home" });
-    try ctx.put(a, "page", .{ .map = page });
+    var ctx = Ctx.Context.init(a);
+    try ctx.putAt("site.title", .{ .string = "My Blog" });
+    try ctx.putAt("site.name", .{ .string = "QuiteClose" });
+    try ctx.putAt("page.title", .{ .string = "Home" });
     const post_count = 10;
     const posts = try a.alloc(V.Value, post_count);
     for (posts, 0..) |*post, i| {
@@ -52,7 +48,7 @@ fn buildContext(a: std.mem.Allocator) !Ctx.Context {
         try m.put(a, "tags", .{ .list = tags });
         post.* = .{ .map = m };
     }
-    try ctx.put(a, "posts", .{ .list = posts });
+    try ctx.put("posts", .{ .list = posts });
     return ctx;
 }
 

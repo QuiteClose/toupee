@@ -39,9 +39,9 @@ test "fuzz renderer does not crash" {
             const a = arena.allocator();
 
             const parse_result = Parser.parse(a, input, .{}) catch return;
-            var ctx: Ctx.Context = .{};
-            ctx.put(a, "x", .{ .string = "val" }) catch return;
-            ctx.put(a, "y", .{ .string = "val2" }) catch return;
+            var ctx = Ctx.Context.init(a);
+            ctx.put("x", .{ .string = "val" }) catch return;
+            ctx.put("y", .{ .string = "val2" }) catch return;
             var resolver: Ctx.Resolver = .{};
             const rendered = Renderer.render(a, parse_result.nodes, &ctx, resolver.loader(), .{});
             _ = rendered catch {};

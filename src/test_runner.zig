@@ -80,7 +80,7 @@ fn runOneCase(backing_allocator: Allocator, tc: *const TestCase) !void {
         try resolver.put(a, tmpl.name, tmpl.content);
     }
 
-    var ctx: Context = .{};
+    var ctx = Context.init(a);
 
     if (tc.context_json) |json_str| {
         if (json_str.len > 0) {
@@ -316,7 +316,7 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (attrs_val == .object) {
             var it = attrs_val.object.iterator();
             while (it.next()) |kv| {
-                try ctx.setAttr(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
+                try ctx.setAttr(try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
                 });
@@ -328,7 +328,7 @@ fn parseContextJson(a: Allocator, json_str: []const u8, ctx: *Context, resolver:
         if (slots_val == .object) {
             var it = slots_val.object.iterator();
             while (it.next()) |kv| {
-                try ctx.setSlot(a, try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
+                try ctx.setSlot(try a.dupe(u8, kv.key_ptr.*), switch (kv.value_ptr.*) {
                     .string => |s| try a.dupe(u8, s),
                     else => try a.dupe(u8, ""),
                 });

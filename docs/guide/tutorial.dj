@@ -31,9 +31,9 @@ pub fn main() !void {
     }
 
     // Render phase: build pages
-    var ctx: toupee.Context = .{};
-    try ctx.put(a, "title", .{ .string = "Strand & Co" });
-    defer ctx.data.deinit(a);
+    var ctx = toupee.Context.init(a);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Strand & Co" });
 
     const html = try engine.renderTemplate(a, "page.html", &ctx, resolver.loader(), .{});
     defer a.free(html);
@@ -76,10 +76,10 @@ allocator.free(diags);
 ```zig
 // Per-request (serve phase -- thread-safe, uses *const Engine)
 fn handleStatus(engine: *const toupee.Engine, allocator: Allocator) ![]const u8 {
-    var ctx: toupee.Context = .{};
-    try ctx.put(allocator, "name", .{ .string = "Marcel" });
-    try ctx.put(allocator, "status", .{ .string = "seated" });
-    defer ctx.data.deinit(allocator);
+    var ctx = toupee.Context.init(allocator);
+    defer ctx.deinit();
+    try ctx.put("name", .{ .string = "Marcel" });
+    try ctx.put("status", .{ .string = "seated" });
 
     var resolver: toupee.Resolver = .{};
     return engine.renderTemplate(allocator, "client-status.html", &ctx, resolver.loader(), .{});
@@ -169,7 +169,8 @@ Pass an `ErrorDetail` pointer via the context to get rich error information:
 
 ```zig
 var err_detail: toupee.ErrorDetail = .{};
-var ctx: toupee.Context = .{};
+var ctx = toupee.Context.init(allocator);
+defer ctx.deinit();
 ctx.err_detail = &err_detail;
 
 const result = engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});

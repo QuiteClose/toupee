@@ -37,11 +37,10 @@ const toupee = @import("toupee");
 var engine = try toupee.Engine.init(allocator);
 defer engine.deinit();
 
-var ctx: toupee.Context = .{};
-try ctx.put(allocator, "title", .{ .string = "Strand & Co" });
-var salon: toupee.Value.Map = .{};
-try salon.put(allocator, "name", .{ .string = "Strand & Co" });
-try ctx.put(allocator, "salon", .{ .map = salon });
+var ctx = toupee.Context.init(allocator);
+defer ctx.deinit();
+try ctx.put("title", .{ .string = "Strand & Co" });
+try ctx.putAt("salon.name", .{ .string = "Strand & Co" });
 
 var resolver: toupee.Resolver = .{};
 const output = try engine.render(allocator, template_source, &ctx, resolver.loader(), .{});

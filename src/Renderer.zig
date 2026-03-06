@@ -67,12 +67,7 @@ pub fn render(
     defer arena.deinit();
     const a = arena.allocator();
 
-    var mutable_ctx: Context = .{
-        .data = try copyMap(a, ctx.data),
-        .attrs = ctx.attrs,
-        .slots = ctx.slots,
-        .err_detail = ctx.err_detail,
-    };
+    var mutable_ctx = try Context.initFrom(a, ctx);
 
     const state = initState(a, loader, options);
     const result = try renderNodes(state, nodes, &mutable_ctx, 0);
@@ -94,12 +89,7 @@ pub fn renderToWriter(
     defer arena.deinit();
     const a = arena.allocator();
 
-    var mutable_ctx: Context = .{
-        .data = try copyMap(a, ctx.data),
-        .attrs = ctx.attrs,
-        .slots = ctx.slots,
-        .err_detail = ctx.err_detail,
-    };
+    var mutable_ctx = try Context.initFrom(a, ctx);
 
     const state = initState(a, loader, options);
     for (nodes) |node| {
@@ -188,7 +178,7 @@ fn renderVariable(
 fn renderLet(state: State, lb: N.LetBinding, ctx: *Context, depth: usize) RenderError!void {
     var rendered = try renderNodes(state, lb.body, ctx, depth);
     if (lb.transform.len > 0) rendered = try applyTransforms(state, rendered, lb.transform);
-    try ctx.put(state.a, lb.name, .{ .string = rendered });
+    try ctx.put(lb.name, .{ .string = rendered });
 }
 
 fn renderAttrOutput(state: State, ao: N.AttrOutput, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
@@ -220,22 +210,17 @@ fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out:
     var inc_attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{};
     for (inc.attrs) |attr| try inc_attrs.put(state.a, attr.name, attr.value);
 
-    var child_data: V.Map = if (inc.isolated) .{} else ctx.data;
+    var child_ctx = if (inc.isolated) Context.init(state.a) else try Context.initFrom(state.a, ctx);
     if (inc.isolated) {
         for (inc.context_bindings) |binding| {
             const root: V.Value = .{ .map = ctx.data };
-            if (root.resolve(binding.path)) |val| {
-                try child_data.put(state.a, binding.key, val);
-            }
+            if (root.resolve(binding.path)) |val|
+                try child_ctx.put(binding.key, val);
         }
     }
-
-    var child_ctx: Context = .{
-        .data = child_data,
-        .attrs = inc_attrs,
-        .slots = child_slots,
-        .err_detail = ctx.err_detail,
-    };
+    child_ctx.attrs = inc_attrs;
+    child_ctx.slots = child_slots;
+    child_ctx.err_detail = ctx.err_detail;
 
     const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
     const lc = h.computeLineCol(state.template_source, inc.source_pos);
@@ -304,7 +289,8 @@ fn mergeDefines(a: Allocator, slots: *std.StringArrayHashMapUnmanaged([]const u8
 }
 
 fn renderExtendLeaf(state: State, nodes: []const Node, ctx: *Context, slots: *std.StringArrayHashMapUnmanaged([]const u8), depth: usize) RenderError![]const u8 {
-    var render_ctx: Context = .{ .data = ctx.data, .attrs = ctx.attrs, .slots = slots.*, .err_detail = ctx.err_detail };
+    var render_ctx = try Context.initFrom(state.a, ctx);
+    render_ctx.slots = slots.*;
     return renderNodes(state, nodes, &render_ctx, depth);
 }
 
@@ -380,16 +366,9 @@ fn renderLoop(state: State, loop: N.Loop, ctx: *Context, depth: usize, out: *std
     }
 
     for (final, 0..) |item, idx| {
-        var child_data = try copyMap(state.a, ctx.data);
-        try child_data.put(state.a, loop.item_prefix, item);
-        if (loop.alias) |alias| try putAliasMetadata(state.a, &child_data, alias, idx, final.len);
-
-        var child_ctx: Context = .{
-            .data = child_data,
-            .attrs = ctx.attrs,
-            .slots = ctx.slots,
-            .err_detail = ctx.err_detail,
-        };
+        var child_ctx = try Context.initFrom(state.a, ctx);
+        try child_ctx.put(loop.item_prefix, item);
+        if (loop.alias) |alias| try putAliasMetadata(state.a, &child_ctx, alias, idx, final.len);
         const rendered = try renderNodes(state, loop.body, &child_ctx, depth + 1);
         try out.appendSlice(state.a, rendered);
     }
@@ -416,21 +395,15 @@ fn applyLimitOffset(items: []V.Value, limit: ?usize, offset: ?usize) []V.Value {
     return if (limit) |l| sliced[0..@min(l, sliced.len)] else sliced;
 }
 
-fn copyMap(a: Allocator, source: V.Map) RenderError!V.Map {
-    var result: V.Map = .{};
-    var it = source.iterator();
-    while (it.next()) |kv| try result.put(a, kv.key_ptr.*, kv.value_ptr.*);
-    return result;
-}
 
-fn putAliasMetadata(a: Allocator, data: *V.Map, alias: []const u8, idx: usize, total: usize) RenderError!void {
+fn putAliasMetadata(a: Allocator, ctx: *Context, alias: []const u8, idx: usize, total: usize) RenderError!void {
     var alias_map: V.Map = .{};
     try alias_map.put(a, "index", .{ .string = try std.fmt.allocPrint(a, "{d}", .{idx}) });
     try alias_map.put(a, "number", .{ .string = try std.fmt.allocPrint(a, "{d}", .{idx + 1}) });
     try alias_map.put(a, "length", .{ .string = try std.fmt.allocPrint(a, "{d}", .{total}) });
     if (idx == 0) try alias_map.put(a, "first", .{ .string = "true" });
     if (idx == total - 1) try alias_map.put(a, "last", .{ .string = "true" });
-    try data.put(a, alias, .{ .map = alias_map });
+    try ctx.put(alias, .{ .map = alias_map });
 }
 
 fn renderBoundTag(state: State, bt: N.BoundTag, ctx: *const Context, out: *std.ArrayList(u8)) RenderError!void {
@@ -600,7 +573,8 @@ const testing = std.testing;
 
 test "render plain text" {
     const nodes = [_]Node{.{ .text = "hello" }};
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -609,9 +583,9 @@ test "render plain text" {
 
 test "render variable" {
     const nodes = [_]Node{.{ .variable = .{ .name = "title" } }};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Hello" });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -620,9 +594,9 @@ test "render variable" {
 
 test "render variable escapes html" {
     const nodes = [_]Node{.{ .variable = .{ .name = "v" } }};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "v", .{ .string = "<b>bold</b>" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("v", .{ .string = "<b>bold</b>" });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -631,9 +605,9 @@ test "render variable escapes html" {
 
 test "render raw variable" {
     const nodes = [_]Node{.{ .raw_variable = .{ .name = "v" } }};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "v", .{ .string = "<b>bold</b>" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("v", .{ .string = "<b>bold</b>" });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -642,7 +616,8 @@ test "render raw variable" {
 
 test "render undefined variable is error" {
     const nodes = [_]Node{.{ .variable = .{ .name = "missing" } }};
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     try testing.expectError(error.UndefinedVariable, result);
@@ -651,7 +626,8 @@ test "render undefined variable is error" {
 test "render variable with default body" {
     const default_body = [_]Node{.{ .text = "Fallback" }};
     const nodes = [_]Node{.{ .variable = .{ .name = "missing", .default_body = &default_body, .has_body = true } }};
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -665,9 +641,9 @@ test "render conditional true branch" {
         .body = &body,
     }};
     const nodes = [_]Node{.{ .conditional = .{ .branches = &branches } }};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "show", .{ .string = "1" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("show", .{ .string = "1" });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -682,7 +658,8 @@ test "render conditional else branch" {
         .body = &body,
     }};
     const nodes = [_]Node{.{ .conditional = .{ .branches = &branches, .else_body = &else_body } }};
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -696,9 +673,9 @@ test "render bound tag" {
         .{ .literal = ">" },
     };
     const nodes = [_]Node{.{ .bound_tag = .{ .segments = &segments } }};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "url", .{ .string = "/home" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("url", .{ .string = "/home" });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -707,7 +684,8 @@ test "render bound tag" {
 
 test "render comment produces no output" {
     const nodes = [_]Node{ .{ .text = "a" }, .comment, .{ .text = "b" } };
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -738,7 +716,8 @@ test "strict false allows missing variables" {
         .{ .variable = .{ .name = "missing" } },
         .{ .text = "]" },
     };
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{ .strict = false });
     defer testing.allocator.free(result);
@@ -747,7 +726,8 @@ test "strict false allows missing variables" {
 
 test "strict true errors on missing variables" {
     const nodes = [_]Node{.{ .variable = .{ .name = "missing" } }};
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = render(testing.allocator, &nodes, &ctx, resolver.loader(), .{ .strict = true });
     try testing.expectError(error.UndefinedVariable, result);
@@ -755,9 +735,9 @@ test "strict true errors on missing variables" {
 
 test "debug element renders context dump" {
     const nodes = [_]Node{.debug};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Hello" });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{ .debug = true });
     defer testing.allocator.free(result);
@@ -768,7 +748,8 @@ test "debug element renders context dump" {
 
 test "debug element stripped when debug is false" {
     const nodes = [_]Node{ .{ .text = "a" }, .debug, .{ .text = "b" } };
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{ .debug = false });
     defer testing.allocator.free(result);
@@ -797,9 +778,9 @@ test "for-else renders else body on empty list" {
         .body = &body,
         .else_body = &else_body,
     } }};
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "items", .{ .list = &.{} });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("items", .{ .list = &.{} });
     var resolver: Resolver = .{};
     const result = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(result);
@@ -810,9 +791,10 @@ test "rich error populates ErrorDetail" {
     const source = "<t-var name=\"titl\" />";
     const nodes = [_]Node{.{ .variable = .{ .name = "titl", .source_pos = 0 } }};
     var ed: Ctx.ErrorDetail = .{};
-    var ctx: Context = .{ .err_detail = &ed };
-    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    ctx.err_detail = &ed;
+    try ctx.put("title", .{ .string = "Hello" });
     var resolver: Resolver = .{};
     const result = render(testing.allocator, &nodes, &ctx, resolver.loader(), .{
         .template_name = "page.html",
@@ -831,7 +813,8 @@ test "rich error populates ErrorDetail" {
 
 test "renderToWriter matches render for text" {
     const nodes = [_]Node{.{ .text = "hello" }};
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
     const buffered = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
@@ -856,10 +839,10 @@ test "renderToWriter matches render for mixed nodes" {
         .{ .conditional = .{ .branches = &branches } },
         .{ .variable = .{ .name = "missing", .default_body = &default_body, .has_body = true } },
     };
-    var ctx: Context = .{};
-    try ctx.put(testing.allocator, "title", .{ .string = "Hello" });
-    try ctx.put(testing.allocator, "show", .{ .string = "1" });
-    defer ctx.data.deinit(testing.allocator);
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Hello" });
+    try ctx.put("show", .{ .string = "1" });
     var resolver: Resolver = .{};
 
     const buffered = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -876,7 +859,8 @@ test "renderToWriter matches render with let binding" {
         .{ .let_binding = .{ .name = "x", .body = &let_body } },
         .{ .variable = .{ .name = "x" } },
     };
-    var ctx: Context = .{};
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
     var resolver: Resolver = .{};
 
     const buffered = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
@@ -891,7 +875,9 @@ test "rich error with include stack" {
     const child_source = "<t-var name=\"missing\" />";
     const parent_source = "<t-include template=\"child.html\" />";
     var ed: Ctx.ErrorDetail = .{};
-    var ctx: Context = .{ .err_detail = &ed };
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    ctx.err_detail = &ed;
     var resolver: Resolver = .{};
     try resolver.put(testing.allocator, "child.html", child_source);
     defer resolver.deinit(testing.allocator);

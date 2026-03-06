@@ -42,8 +42,9 @@ Zig:
 ```zig
 const toupee = @import("toupee");
 
-var ctx: toupee.Context = .{};
-try ctx.put(allocator, "products", .{ .list = &.{
+var ctx = toupee.Context.init(allocator);
+defer ctx.deinit();
+try ctx.put("products", .{ .list = &.{
     .{ .map = /* { name: "Pomade", hold: "STRONG" } */ },
     .{ .map = /* { name: "Mousse", hold: "LIGHT" } */ },
 } });
@@ -102,12 +103,12 @@ defer engine.deinit();
 // Load all .html templates from a directory at once
 try engine.loadFromDirectory("templates", ".html");
 
-var ctx: toupee.Context = .{};
+var ctx = toupee.Context.init(allocator);
+defer ctx.deinit();
 // Build nested context from dot-separated paths
-try ctx.putAt(allocator, "site.title", .{ .string = "The Toupee Room" });
-try ctx.putAt(allocator, "site.author", .{ .string = "QuiteClose" });
-try ctx.put(allocator, "year", .{ .string = "2026" });
-defer ctx.deinit(allocator);
+try ctx.putAt("site.title", .{ .string = "The Toupee Room" });
+try ctx.putAt("site.author", .{ .string = "QuiteClose" });
+try ctx.put("year", .{ .string = "2026" });
 
 var resolver: toupee.Resolver = .{};
 const html = try engine.renderTemplate(allocator, "page.html", &ctx, resolver.loader(), .{});
@@ -129,10 +130,10 @@ const diags = try engine.validate(allocator, resolver.loader());
 defer allocator.free(diags);
 
 // Serve phase (per-request, thread-safe)
-var ctx: toupee.Context = .{};
-try ctx.put(allocator, "client", .{ .string = "Marcel" });
-try ctx.put(allocator, "status", .{ .string = "seated" });
-defer ctx.data.deinit(allocator);
+var ctx = toupee.Context.init(allocator);
+defer ctx.deinit();
+try ctx.put("client", .{ .string = "Marcel" });
+try ctx.put("status", .{ .string = "seated" });
 
 try engine.renderTemplateToWriter(allocator, "client-status.html", &ctx, resolver.loader(), .{}, response.writer());
 ```

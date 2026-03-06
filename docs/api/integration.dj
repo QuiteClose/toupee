@@ -36,9 +36,9 @@ pub fn main() !void {
     defer engine.deinit();
 
     const template = "<h1><t-var name=\"title\" /></h1>";
-    var ctx: toupee.Context = .{};
-    try ctx.put(a, "title", .{ .string = "Welcome to the salon" });
-    defer ctx.data.deinit(a);
+    var ctx = toupee.Context.init(a);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Welcome to the salon" });
 
     var resolver: toupee.Resolver = .{};
     const output = try engine.render(a, template, &ctx, resolver.loader(), .{});
@@ -66,12 +66,11 @@ try engine.addTemplate("extra.html", extra_source);
 
 // Render each page
 for (pages) |page| {
-    var ctx: toupee.Context = .{};
-    // Build nested context from frontmatter-style data
-    try ctx.putAt(allocator, "site.title", .{ .string = site_title });
-    try ctx.putAt(allocator, "page.title", .{ .string = page.title });
-    try ctx.putAt(allocator, "page.date", .{ .string = page.date });
-    defer ctx.deinit(allocator);
+    var ctx = toupee.Context.init(allocator);
+    defer ctx.deinit();
+    try ctx.putAt("site.title", .{ .string = site_title });
+    try ctx.putAt("page.title", .{ .string = page.title });
+    try ctx.putAt("page.date", .{ .string = page.date });
 
     var resolver: toupee.Resolver = .{};
     const output = try engine.renderTemplate(
@@ -91,22 +90,14 @@ Toupee uses Zig's allocator pattern throughout:
 - All `render` functions return caller-owned `[]const u8` that must be freed
 - `Engine.init` and `Engine.addTemplate` allocate internal structures
 - `Engine.deinit` frees all internal allocations
-- `Context` data must be freed by the caller; use `ctx.deinit(allocator)` when using `putAt` (frees nested maps), or `ctx.data.deinit(allocator)` for flat data
-- Use `ArenaAllocator` for per-request rendering to simplify cleanup
-
-### Arena allocator pattern
+- `Context` owns an internal `ArenaAllocator`; `ctx.deinit()` frees all data at once (no allocator parameter needed)
 
 ```zig
-for (pages) |page| {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var ctx = try buildPageContext(a, page);
-    const output = try engine.render(a, template, &ctx, resolver.loader(), .{});
-    try writeFile(page.path, output);
-    // arena.deinit() cleans up everything
-}
+var ctx = toupee.Context.init(allocator);
+defer ctx.deinit();
+try ctx.put("title", .{ .string = "Hello" });
+try ctx.putAt("page.meta.draft", .{ .boolean = true });
+// ctx.deinit() frees everything -- no recursive cleanup needed
 ```
 
 ## Testing templates
@@ -118,9 +109,9 @@ test "home page renders correctly" {
     var engine = try toupee.Engine.init(std.testing.allocator);
     defer engine.deinit();
 
-    var ctx: toupee.Context = .{};
-    try ctx.put(std.testing.allocator, "title", .{ .string = "Strand & Co" });
-    defer ctx.data.deinit(std.testing.allocator);
+    var ctx = toupee.Context.init(std.testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("title", .{ .string = "Strand & Co" });
 
     var resolver: toupee.Resolver = .{};
     const result = try engine.render(

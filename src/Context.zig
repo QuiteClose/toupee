@@ -147,15 +147,44 @@ fn appendUsize(a: Allocator, buf: *std.ArrayListUnmanaged(u8), value: usize) All
     try buf.appendSlice(a, s);
 }
 
-/// Render context holding data, attributes, slots, and optional error detail. `data` is caller-owned;
-/// the Renderer copies data on entry to child contexts, so the original is safe to reuse across render calls.
+/// Render context holding data, attributes, slots, and optional error detail.
+/// Owns an `ArenaAllocator` for all internal data; `deinit()` frees everything at once.
+/// The Renderer copies data into child contexts, so the original is safe to reuse across render calls.
 pub const Context = struct {
-    /// Nested variable tree. Caller populates; Renderer copies for child contexts.
+    arena: std.heap.ArenaAllocator,
+    /// Nested variable tree.
     data: V.Map = .{},
     attrs: std.StringArrayHashMapUnmanaged([]const u8) = .{},
     slots: std.StringArrayHashMapUnmanaged([]const u8) = .{},
     /// If non-null, populated on render/parse error. Caller allocates and passes; fields valid only after error.
     err_detail: ?*ErrorDetail = null,
+
+    /// Creates a new context backed by `backing` allocator.
+    pub fn init(backing: Allocator) Context {
+        return .{ .arena = std.heap.ArenaAllocator.init(backing) };
+    }
+
+    /// Creates a child context backed by `backing` allocator, copying data from `parent`.
+    /// Attrs, slots, and err_detail are shared by reference (not copied).
+    pub fn initFrom(backing: Allocator, parent: *const Context) Allocator.Error!Context {
+        var child = init(backing);
+        const a = child.allocator();
+        var it = parent.data.iterator();
+        while (it.next()) |kv| try child.data.put(a, kv.key_ptr.*, kv.value_ptr.*);
+        child.attrs = parent.attrs;
+        child.slots = parent.slots;
+        child.err_detail = parent.err_detail;
+        return child;
+    }
+
+    fn allocator(self: *Context) Allocator {
+        return self.arena.allocator();
+    }
+
+    /// Frees all data owned by this context.
+    pub fn deinit(self: *Context) void {
+        self.arena.deinit();
+    }
 
     /// Looks up a dot-separated path in `data` (e.g. `page.title`).
     pub fn resolve(self: *const Context, path: []const u8) ?Value {
@@ -170,17 +199,18 @@ pub const Context = struct {
     }
 
     /// Inserts a value at a top-level key in `data`.
-    pub fn put(self: *Context, a: Allocator, key: []const u8, value: Value) !void {
-        try self.data.put(a, key, value);
+    pub fn put(self: *Context, key: []const u8, value: Value) !void {
+        try self.data.put(self.allocator(), key, value);
     }
 
     /// Inserts a value at a dot-separated path, creating intermediate maps as needed.
     /// `"page.title"` ensures a `"page"` map exists in `data`, then puts `"title"` into it.
     /// Returns `error.PathConflict` if an intermediate key exists but is not a `.map`.
     /// Empty path is a no-op.
-    pub fn putAt(self: *Context, a: Allocator, path: []const u8, value: Value) (Allocator.Error || error{PathConflict})!void {
+    pub fn putAt(self: *Context, path: []const u8, value: Value) (Allocator.Error || error{PathConflict})!void {
         if (path.len == 0) return;
 
+        const a = self.allocator();
         var current_map: *V.Map = &self.data;
         var it = std.mem.splitScalar(u8, path, '.');
 
@@ -202,8 +232,8 @@ pub const Context = struct {
     }
 
     /// Sets an attribute (string key-value pair for included templates).
-    pub fn setAttr(self: *Context, a: Allocator, key: []const u8, value: []const u8) !void {
-        try self.attrs.put(a, key, value);
+    pub fn setAttr(self: *Context, key: []const u8, value: []const u8) !void {
+        try self.attrs.put(self.allocator(), key, value);
     }
 
     pub fn getAttr(self: *const Context, key: []const u8) ?[]const u8 {
@@ -211,8 +241,8 @@ pub const Context = struct {
     }
 
     /// Sets a slot (pre-rendered content for slot filling).
-    pub fn setSlot(self: *Context, a: Allocator, key: []const u8, value: []const u8) !void {
-        try self.slots.put(a, key, value);
+    pub fn setSlot(self: *Context, key: []const u8, value: []const u8) !void {
+        try self.slots.put(self.allocator(), key, value);
     }
 
     pub fn getSlot(self: *const Context, key: []const u8) ?[]const u8 {
@@ -221,23 +251,6 @@ pub const Context = struct {
 
     pub fn hasSlot(self: *const Context, key: []const u8) bool {
         return self.slots.contains(key);
-    }
-
-    pub fn deinit(self: *Context, a: Allocator) void {
-        deinitMap(&self.data, a);
-        self.attrs.deinit(a);
-        self.slots.deinit(a);
-    }
-
-    fn deinitMap(map: *V.Map, a: Allocator) void {
-        var it = map.iterator();
-        while (it.next()) |entry| {
-            switch (entry.value_ptr.*) {
-                .map => |*m| deinitMap(m, a),
-                else => {},
-            }
-        }
-        map.deinit(a);
     }
 };
 
@@ -326,56 +339,246 @@ test "Resolver.loader ignores allocator (zero-copy)" {
 }
 
 test "putAt simple key" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "title", .{ .string = "Hello" });
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("title", .{ .string = "Hello" });
     try testing.expectEqualStrings("Hello", ctx.resolve("title").?.asString().?);
 }
 
 test "putAt two-level path" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "page.title", .{ .string = "My Page" });
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.title", .{ .string = "My Page" });
     try testing.expectEqualStrings("My Page", ctx.resolve("page.title").?.asString().?);
 }
 
 test "putAt three-level path" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "page.meta.description", .{ .string = "A page" });
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.meta.description", .{ .string = "A page" });
     try testing.expectEqualStrings("A page", ctx.resolve("page.meta.description").?.asString().?);
 }
 
 test "putAt intermediate map already exists" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "page.title", .{ .string = "Title" });
-    try ctx.putAt(testing.allocator, "page.author", .{ .string = "QuiteClose" });
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.title", .{ .string = "Title" });
+    try ctx.putAt("page.author", .{ .string = "QuiteClose" });
     try testing.expectEqualStrings("Title", ctx.resolve("page.title").?.asString().?);
     try testing.expectEqualStrings("QuiteClose", ctx.resolve("page.author").?.asString().?);
 }
 
 test "putAt intermediate key wrong type" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "page", .{ .string = "flat" });
-    try testing.expectError(error.PathConflict, ctx.putAt(testing.allocator, "page.title", .{ .string = "nested" }));
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page", .{ .string = "flat" });
+    try testing.expectError(error.PathConflict, ctx.putAt("page.title", .{ .string = "nested" }));
 }
 
 test "putAt empty path is no-op" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "", .{ .string = "ignored" });
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("", .{ .string = "ignored" });
     try testing.expectEqual(@as(usize, 0), ctx.data.count());
 }
 
 test "putAt multiple puts to same parent" {
-    var ctx: Context = .{};
-    defer ctx.deinit(testing.allocator);
-    try ctx.putAt(testing.allocator, "site.name", .{ .string = "My Site" });
-    try ctx.putAt(testing.allocator, "site.url", .{ .string = "https://example.com" });
-    try ctx.putAt(testing.allocator, "site.version", .{ .integer = 3 });
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("site.name", .{ .string = "My Site" });
+    try ctx.putAt("site.url", .{ .string = "https://example.com" });
+    try ctx.putAt("site.version", .{ .integer = 3 });
     try testing.expectEqualStrings("My Site", ctx.resolve("site.name").?.asString().?);
     try testing.expectEqualStrings("https://example.com", ctx.resolve("site.url").?.asString().?);
     try testing.expectEqual(@as(i64, 3), ctx.resolve("site.version").?.integer);
+}
+
+// -- Overwrite behaviour --
+
+test "putAt overwrites existing top-level value" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("title", .{ .string = "First" });
+    try ctx.putAt("title", .{ .string = "Second" });
+    try testing.expectEqualStrings("Second", ctx.resolve("title").?.asString().?);
+}
+
+test "putAt overwrites existing leaf via path" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.title", .{ .string = "Draft" });
+    try ctx.putAt("page.title", .{ .string = "Final" });
+    try testing.expectEqualStrings("Final", ctx.resolve("page.title").?.asString().?);
+}
+
+test "putAt overwrite preserves siblings" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.title", .{ .string = "Title" });
+    try ctx.putAt("page.draft", .{ .boolean = true });
+    try ctx.putAt("page.title", .{ .string = "New Title" });
+    try testing.expectEqualStrings("New Title", ctx.resolve("page.title").?.asString().?);
+    try testing.expectEqual(true, ctx.resolve("page.draft").?.boolean);
+}
+
+// -- PathConflict with each non-map Value type --
+
+test "putAt conflict with boolean intermediate" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("flag", .{ .boolean = true });
+    try testing.expectError(error.PathConflict, ctx.putAt("flag.sub", .{ .string = "x" }));
+}
+
+test "putAt conflict with integer intermediate" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("count", .{ .integer = 42 });
+    try testing.expectError(error.PathConflict, ctx.putAt("count.sub", .{ .string = "x" }));
+}
+
+test "putAt conflict with list intermediate" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("items", .{ .list = &.{} });
+    try testing.expectError(error.PathConflict, ctx.putAt("items.sub", .{ .string = "x" }));
+}
+
+test "putAt conflict with nil intermediate" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("empty", .nil);
+    try testing.expectError(error.PathConflict, ctx.putAt("empty.sub", .{ .string = "x" }));
+}
+
+test "putAt conflict at second intermediate" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("a.b", .{ .string = "leaf" });
+    try testing.expectError(error.PathConflict, ctx.putAt("a.b.c", .{ .string = "x" }));
+}
+
+// -- All Value types as leaf values --
+
+test "putAt leaf is boolean" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.draft", .{ .boolean = true });
+    try testing.expectEqual(true, ctx.resolve("page.draft").?.boolean);
+}
+
+test "putAt leaf is integer" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.order", .{ .integer = 7 });
+    try testing.expectEqual(@as(i64, 7), ctx.resolve("page.order").?.integer);
+}
+
+test "putAt leaf is list" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    const items = &[_]Value{ .{ .string = "a" }, .{ .string = "b" } };
+    try ctx.putAt("page.tags", .{ .list = items });
+    const list = ctx.resolve("page.tags").?.list;
+    try testing.expectEqual(@as(usize, 2), list.len);
+    try testing.expectEqualStrings("a", list[0].asString().?);
+    try testing.expectEqualStrings("b", list[1].asString().?);
+}
+
+test "putAt leaf is map" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    var inner: V.Map = .{};
+    try inner.put(ctx.allocator(), "x", .{ .string = "y" });
+    try ctx.putAt("page.extra", .{ .map = inner });
+    try testing.expectEqualStrings("y", ctx.resolve("page.extra.x").?.asString().?);
+}
+
+test "putAt leaf is nil" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.empty", .nil);
+    try testing.expectEqual(Value.nil, ctx.resolve("page.empty").?);
+}
+
+// -- Interaction with put --
+
+test "putAt navigates into map created by put" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    var page: V.Map = .{};
+    try page.put(ctx.allocator(), "existing", .{ .string = "keep" });
+    try ctx.put("page", .{ .map = page });
+    try ctx.putAt("page.added", .{ .string = "new" });
+    try testing.expectEqualStrings("keep", ctx.resolve("page.existing").?.asString().?);
+    try testing.expectEqualStrings("new", ctx.resolve("page.added").?.asString().?);
+}
+
+test "putAt into map created by put then extended by putAt" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    var page: V.Map = .{};
+    try page.put(ctx.allocator(), "title", .{ .string = "Original" });
+    try ctx.put("page", .{ .map = page });
+    try ctx.putAt("page.draft", .{ .boolean = true });
+    try ctx.putAt("page.title", .{ .string = "Updated" });
+    try testing.expectEqualStrings("Updated", ctx.resolve("page.title").?.asString().?);
+    try testing.expectEqual(true, ctx.resolve("page.draft").?.boolean);
+}
+
+test "put overwrites subtree created by putAt" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.title", .{ .string = "Hello" });
+    try ctx.putAt("page.meta.description", .{ .string = "A page" });
+    try ctx.put("page", .{ .string = "flat" });
+    try testing.expectEqualStrings("flat", ctx.resolve("page").?.asString().?);
+}
+
+// -- Deep nesting --
+
+test "putAt five levels deep" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("a.b.c.d.e", .{ .string = "deep" });
+    try testing.expectEqualStrings("deep", ctx.resolve("a.b.c.d.e").?.asString().?);
+    try testing.expect(ctx.resolve("a").?.map.count() == 1);
+    try testing.expect(ctx.resolve("a.b").?.map.count() == 1);
+    try testing.expect(ctx.resolve("a.b.c").?.map.count() == 1);
+    try testing.expect(ctx.resolve("a.b.c.d").?.map.count() == 1);
+}
+
+// -- Edge-case dot patterns --
+
+test "putAt trailing dot creates empty-string leaf key" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("page.", .{ .string = "val" });
+    const page_map = ctx.resolve("page").?.map;
+    try testing.expectEqualStrings("val", page_map.get("").?.asString().?);
+}
+
+test "putAt leading dot creates empty-string intermediate" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt(".title", .{ .string = "val" });
+    const empty_map = ctx.data.get("").?.map;
+    try testing.expectEqualStrings("val", empty_map.get("title").?.asString().?);
+}
+
+test "putAt consecutive dots create empty-string intermediates" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt("a..b", .{ .string = "val" });
+    const a_map = ctx.resolve("a").?.map;
+    const empty_map = a_map.get("").?.map;
+    try testing.expectEqualStrings("val", empty_map.get("b").?.asString().?);
+}
+
+test "putAt single dot creates two empty-string segments" {
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.putAt(".", .{ .string = "val" });
+    const empty_map = ctx.data.get("").?.map;
+    try testing.expectEqualStrings("val", empty_map.get("").?.asString().?);
 }
