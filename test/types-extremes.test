@@ -1,0 +1,223 @@
+<!-- test: render i64 max -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 9223372036854775807}}
+<!-- out -->
+[9223372036854775807]
+
+<!-- test: render i64 min -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": -9223372036854775808}}
+<!-- out -->
+[-9223372036854775808]
+
+<!-- test: render very large float -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 1.5e20}}
+<!-- out -->
+[150000000000000000000]
+
+<!-- test: render very small float -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 0.001}}
+<!-- out -->
+[0.001]
+
+<!-- test: render float whole number strips zeros -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 1000000.0}}
+<!-- out -->
+[1000000]
+
+<!-- test: large integer through abs -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": -123456789}}
+<!-- out -->
+123456789
+
+<!-- test: large integer through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+123456789
+
+<!-- test: large integer through decimal:2 -->
+<!-- in -->
+<t-var name="x" transform="decimal:2" />
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+123456789.00
+
+<!-- test: negative integer through abs -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": -42}}
+<!-- out -->
+42
+
+<!-- test: large float through floor -->
+<!-- in -->
+<t-var name="x" transform="floor" />
+<!-- context -->
+{"data": {"x": 999.99}}
+<!-- out -->
+999
+
+<!-- test: large float through ceil -->
+<!-- in -->
+<t-var name="x" transform="ceil" />
+<!-- context -->
+{"data": {"x": 999.01}}
+<!-- out -->
+1000
+
+<!-- test: unparseable string through int gives zero -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": "not-a-number"}}
+<!-- out -->
+0
+
+<!-- test: unparseable string through float gives zero -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": "not-a-number"}}
+<!-- out -->
+0
+
+<!-- test: unparseable string through abs gives zero -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": "not-a-number"}}
+<!-- out -->
+0
+
+<!-- test: large integer equals -->
+<!-- in -->
+<t-if var="x" equals="123456789">match</t-if>
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+match
+
+<!-- test: large integer contains substring -->
+<!-- in -->
+<t-if var="x" contains="456">yes</t-if>
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+yes
+
+<!-- test: large float equals -->
+<!-- in -->
+<t-if var="x" equals="1000000">match</t-if>
+<!-- context -->
+{"data": {"x": 1000000.0}}
+<!-- out -->
+match
+
+<!-- test: large integer through length -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+9
+
+<!-- test: large integer through bool -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+true
+
+<!-- test: zero through bool -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": 0}}
+<!-- out -->
+false
+
+<!-- test: large float through int truncates -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": 999.99}}
+<!-- out -->
+999
+
+<!-- test: negative float through abs -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": -99.5}}
+<!-- out -->
+99.5
+
+<!-- test: large integer through float -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": 1000000}}
+<!-- out -->
+1000000
+
+<!-- test: negative integer through length -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": -123456789}}
+<!-- out -->
+10
+
+<!-- test: large integer through upper (no-op on digits) -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+123456789
+
+<!-- test: large integer through decimal:0 -->
+<!-- in -->
+<t-var name="x" transform="decimal:0" />
+<!-- context -->
+{"data": {"x": 123456789}}
+<!-- out -->
+123456789
+
+<!-- test: large negative through abs and int -->
+<!-- in -->
+<t-var name="x" transform="abs|int" />
+<!-- context -->
+{"data": {"x": -999}}
+<!-- out -->
+999
+
+<!-- test: float precision in comparison -->
+<!-- in -->
+<t-if var="x" starts-with="0.">yes</t-if>
+<!-- context -->
+{"data": {"x": 0.123}}
+<!-- out -->
+yes

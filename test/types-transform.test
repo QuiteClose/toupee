@@ -1,0 +1,623 @@
+<!-- test: integer through upper -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through lower -->
+<!-- in -->
+<t-var name="x" transform="lower" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through capitalize -->
+<!-- in -->
+<t-var name="x" transform="capitalize" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through trim -->
+<!-- in -->
+<t-var name="x" transform="trim" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through slugify -->
+<!-- in -->
+<t-var name="x" transform="slugify" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through length -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+2
+
+<!-- test: integer through abs -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": -7}}
+<!-- out -->
+7
+
+<!-- test: integer through floor -->
+<!-- in -->
+<t-var name="x" transform="floor" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through ceil -->
+<!-- in -->
+<t-var name="x" transform="ceil" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through escape -->
+<!-- in -->
+<t-raw name="x" transform="escape" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through float -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through decimal:2 -->
+<!-- in -->
+<t-var name="x" transform="decimal:2" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42.00
+
+<!-- test: integer through bool (nonzero) -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+true
+
+<!-- test: integer zero through bool -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": 0}}
+<!-- out -->
+false
+
+<!-- test: integer through url_encode -->
+<!-- in -->
+<t-var name="x" transform="url_encode" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through first -->
+<!-- in -->
+<t-var name="x" transform="first" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+4
+
+<!-- test: integer through last -->
+<!-- in -->
+<t-var name="x" transform="last" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+2
+
+<!-- test: float through upper -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3.14
+
+<!-- test: float through length -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+4
+
+<!-- test: float through abs -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": -3.7}}
+<!-- out -->
+3.7
+
+<!-- test: float through floor -->
+<!-- in -->
+<t-var name="x" transform="floor" />
+<!-- context -->
+{"data": {"x": 3.7}}
+<!-- out -->
+3
+
+<!-- test: float through ceil -->
+<!-- in -->
+<t-var name="x" transform="ceil" />
+<!-- context -->
+{"data": {"x": 3.2}}
+<!-- out -->
+4
+
+<!-- test: float through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": 29.99}}
+<!-- out -->
+29
+
+<!-- test: float through float (identity) -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": 29.99}}
+<!-- out -->
+29.99
+
+<!-- test: float through decimal:2 -->
+<!-- in -->
+<t-var name="x" transform="decimal:2" />
+<!-- context -->
+{"data": {"x": 3.1}}
+<!-- out -->
+3.10
+
+<!-- test: float through bool (nonzero) -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+true
+
+<!-- test: float zero through bool -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": 0.0}}
+<!-- out -->
+false
+
+<!-- test: float through slugify -->
+<!-- in -->
+<t-var name="x" transform="slugify" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3-14
+
+<!-- test: float through escape -->
+<!-- in -->
+<t-raw name="x" transform="escape" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3.14
+
+<!-- test: float through first -->
+<!-- in -->
+<t-var name="x" transform="first" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3
+
+<!-- test: float through last -->
+<!-- in -->
+<t-var name="x" transform="last" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+4
+
+<!-- test: boolean true through upper -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+TRUE
+
+<!-- test: boolean false through upper -->
+<!-- in -->
+<t-var name="x" transform="upper" />
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+FALSE
+
+<!-- test: boolean through lower -->
+<!-- in -->
+<t-var name="x" transform="lower" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true
+
+<!-- test: boolean through capitalize -->
+<!-- in -->
+<t-var name="x" transform="capitalize" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+True
+
+<!-- test: boolean through length -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+4
+
+<!-- test: boolean false through length -->
+<!-- in -->
+<t-var name="x" transform="length" />
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+5
+
+<!-- test: boolean through slugify -->
+<!-- in -->
+<t-var name="x" transform="slugify" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true
+
+<!-- test: boolean true through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+1
+
+<!-- test: boolean false through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+0
+
+<!-- test: boolean true through float -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+1
+
+<!-- test: boolean true through decimal:2 -->
+<!-- in -->
+<t-var name="x" transform="decimal:2" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+1.00
+
+<!-- test: boolean false through decimal:2 -->
+<!-- in -->
+<t-var name="x" transform="decimal:2" />
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+0.00
+
+<!-- test: boolean through bool (identity) -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true
+
+<!-- test: boolean false through bool (identity) -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+false
+
+<!-- test: boolean through abs -->
+<!-- in -->
+<t-var name="x" transform="abs" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+1
+
+<!-- test: boolean through floor -->
+<!-- in -->
+<t-var name="x" transform="floor" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+1
+
+<!-- test: boolean through ceil -->
+<!-- in -->
+<t-var name="x" transform="ceil" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+1
+
+<!-- test: boolean through escape -->
+<!-- in -->
+<t-raw name="x" transform="escape" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true
+
+<!-- test: boolean through first:2 -->
+<!-- in -->
+<t-var name="x" transform="first:2" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+tr
+
+<!-- test: boolean through last:2 -->
+<!-- in -->
+<t-var name="x" transform="last:2" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+ue
+
+<!-- test: string through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": "3.14"}}
+<!-- out -->
+3
+
+<!-- test: string unparseable through int -->
+<!-- in -->
+<t-var name="x" transform="int" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+0
+
+<!-- test: string through float -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": "29.990"}}
+<!-- out -->
+29.99
+
+<!-- test: string unparseable through float -->
+<!-- in -->
+<t-var name="x" transform="float" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+0
+
+<!-- test: string through decimal:2 -->
+<!-- in -->
+<t-var name="x" transform="decimal:2" />
+<!-- context -->
+{"data": {"x": "42"}}
+<!-- out -->
+42.00
+
+<!-- test: string through bool (truthy) -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+true
+
+<!-- test: string through bool (empty) -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": ""}}
+<!-- out -->
+false
+
+<!-- test: string "0" through bool -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": "0"}}
+<!-- out -->
+false
+
+<!-- test: string "false" through bool -->
+<!-- in -->
+<t-var name="x" transform="bool" />
+<!-- context -->
+{"data": {"x": "false"}}
+<!-- out -->
+false
+
+<!-- test: integer through default (has value) -->
+<!-- in -->
+<t-var name="x" transform="default:N/A" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: float through default (has value) -->
+<!-- in -->
+<t-var name="x" transform="default:N/A" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3.14
+
+<!-- test: boolean through default (has value) -->
+<!-- in -->
+<t-var name="x" transform="default:N/A" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true
+
+<!-- test: integer through truncate:1 -->
+<!-- in -->
+<t-var name="x" transform="truncate:1" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+4
+
+<!-- test: float through truncate:3 -->
+<!-- in -->
+<t-var name="x" transform="truncate:3" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3.1
+
+<!-- test: boolean through truncate:2 -->
+<!-- in -->
+<t-var name="x" transform="truncate:2" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+tr
+
+<!-- test: integer through replace -->
+<!-- in -->
+<t-var name="x" transform="replace:4:X" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+X2
+
+<!-- test: float through replace -->
+<!-- in -->
+<t-var name="x" transform="replace:.:," />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3,14
+
+<!-- test: integer through join (no-op on non-multiline) -->
+<!-- in -->
+<t-var name="x" transform="join:," />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through split (no-op when sep not found) -->
+<!-- in -->
+<t-var name="x" transform="split:," />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through js_escape -->
+<!-- in -->
+<t-var name="x" transform="js_escape" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through url_decode -->
+<!-- in -->
+<t-var name="x" transform="url_decode" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: integer through date (passthrough) -->
+<!-- in -->
+<t-var name="x" transform="date" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: float through trim -->
+<!-- in -->
+<t-var name="x" transform="trim" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3.14
+
+<!-- test: boolean through trim -->
+<!-- in -->
+<t-var name="x" transform="trim" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true
+
+<!-- test: float through url_encode -->
+<!-- in -->
+<t-var name="x" transform="url_encode" />
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+3.14
+
+<!-- test: boolean through url_encode -->
+<!-- in -->
+<t-var name="x" transform="url_encode" />
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+true

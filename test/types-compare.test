@@ -1,0 +1,299 @@
+<!-- test: integer exists -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+yes
+
+<!-- test: integer not-exists false -->
+<!-- in -->
+<t-if var="x" not-exists>yes</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+
+<!-- test: integer equals coerced string -->
+<!-- in -->
+<t-if var="x" equals="42">match</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+match
+
+<!-- test: integer not-equals -->
+<!-- in -->
+<t-if var="x" not-equals="99">diff</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+diff
+
+<!-- test: integer contains digit -->
+<!-- in -->
+<t-if var="x" contains="4">yes</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+yes
+
+<!-- test: integer starts-with -->
+<!-- in -->
+<t-if var="x" starts-with="4">yes</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+yes
+
+<!-- test: integer ends-with -->
+<!-- in -->
+<t-if var="x" ends-with="2">yes</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+yes
+
+<!-- test: integer matches glob -->
+<!-- in -->
+<t-if var="x" matches="4?">yes</t-if>
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+yes
+
+<!-- test: float exists -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+yes
+
+<!-- test: float equals coerced string -->
+<!-- in -->
+<t-if var="x" equals="3.14">match</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+match
+
+<!-- test: float contains substring -->
+<!-- in -->
+<t-if var="x" contains=".14">yes</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+yes
+
+<!-- test: float starts-with -->
+<!-- in -->
+<t-if var="x" starts-with="3.">yes</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+yes
+
+<!-- test: float ends-with -->
+<!-- in -->
+<t-if var="x" ends-with="14">yes</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+yes
+
+<!-- test: boolean true exists -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+yes
+
+<!-- test: boolean true equals string -->
+<!-- in -->
+<t-if var="x" equals="true">match</t-if>
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+match
+
+<!-- test: boolean false exists -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+yes
+
+<!-- test: boolean false equals string -->
+<!-- in -->
+<t-if var="x" equals="false">match</t-if>
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+match
+
+<!-- test: boolean false not-equals true -->
+<!-- in -->
+<t-if var="x" not-equals="true">diff</t-if>
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+diff
+
+<!-- test: boolean true starts-with -->
+<!-- in -->
+<t-if var="x" starts-with="tr">yes</t-if>
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+yes
+
+<!-- test: null still exists in data -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": null}}
+<!-- out -->
+yes
+
+<!-- test: null not-exists is false (key is present) -->
+<!-- in -->
+<t-if var="x" not-exists>gone</t-if>
+<!-- context -->
+{"data": {"x": null}}
+<!-- out -->
+
+<!-- test: missing var exists is false -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- out -->
+
+<!-- test: missing var not-exists -->
+<!-- in -->
+<t-if var="x" not-exists>gone</t-if>
+<!-- out -->
+gone
+
+<!-- test: missing var equals is false -->
+<!-- in -->
+<t-if var="x" equals="anything">yes</t-if>
+<!-- out -->
+
+<!-- test: missing var not-equals is true -->
+<!-- in -->
+<t-if var="x" not-equals="anything">yes</t-if>
+<!-- out -->
+yes
+
+<!-- test: zero integer exists -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": 0}}
+<!-- out -->
+yes
+
+<!-- test: zero integer equals zero string -->
+<!-- in -->
+<t-if var="x" equals="0">match</t-if>
+<!-- context -->
+{"data": {"x": 0}}
+<!-- out -->
+match
+
+<!-- test: empty string exists -->
+<!-- in -->
+<t-if var="x">yes</t-if>
+<!-- context -->
+{"data": {"x": ""}}
+<!-- out -->
+yes
+
+<!-- test: empty string equals empty -->
+<!-- in -->
+<t-if var="x" equals="">match</t-if>
+<!-- context -->
+{"data": {"x": ""}}
+<!-- out -->
+match
+
+<!-- test: negative integer equals -->
+<!-- in -->
+<t-if var="x" equals="-7">match</t-if>
+<!-- context -->
+{"data": {"x": -7}}
+<!-- out -->
+match
+
+<!-- test: negative integer starts-with minus -->
+<!-- in -->
+<t-if var="x" starts-with="-">yes</t-if>
+<!-- context -->
+{"data": {"x": -7}}
+<!-- out -->
+yes
+
+<!-- test: integer matches glob pattern -->
+<!-- in -->
+<t-if var="x" matches="*2*">yes</t-if>
+<!-- context -->
+{"data": {"x": 123}}
+<!-- out -->
+yes
+
+<!-- test: float matches glob -->
+<!-- in -->
+<t-if var="x" matches="3.*">yes</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+yes
+
+<!-- test: boolean contains substring -->
+<!-- in -->
+<t-if var="x" contains="ru">yes</t-if>
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+yes
+
+<!-- test: integer not-equals different value -->
+<!-- in -->
+<t-if var="x" not-equals="42">diff</t-if>
+<!-- context -->
+{"data": {"x": 7}}
+<!-- out -->
+diff
+
+<!-- test: float not-equals -->
+<!-- in -->
+<t-if var="x" not-equals="2.71">diff</t-if>
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+diff
+
+<!-- test: nested integer comparison -->
+<!-- in -->
+<t-if var="page.order" equals="3">match</t-if>
+<!-- context -->
+{"data": {"page": {"order": 3}}}
+<!-- out -->
+match
+
+<!-- test: nested float comparison -->
+<!-- in -->
+<t-if var="item.price" starts-with="9.">yes</t-if>
+<!-- context -->
+{"data": {"item": {"price": 9.99}}}
+<!-- out -->
+yes
+
+<!-- test: nested boolean comparison -->
+<!-- in -->
+<t-if var="page.draft" equals="true">match</t-if>
+<!-- context -->
+{"data": {"page": {"draft": true}}}
+<!-- out -->
+match

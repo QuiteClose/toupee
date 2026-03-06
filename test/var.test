@@ -151,18 +151,18 @@ prefix<t-var name="x" />suffix
 <!-- out -->
 prefix-mid-suffix
 
-<!-- test: integer value uses default -->
+<!-- test: integer value auto-coerces to string -->
 <!-- in -->
 <t-var name="count">N/A</t-var>
 <!-- context -->
 {"data": {"count": 42}}
 <!-- out -->
-N/A
+42
 
-<!-- test: boolean true uses default -->
+<!-- test: boolean true auto-coerces to string -->
 <!-- in -->
 <t-var name="flag">N/A</t-var>
 <!-- context -->
 {"data": {"flag": true}}
 <!-- out -->
-N/A
+true

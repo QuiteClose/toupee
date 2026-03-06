@@ -1,0 +1,143 @@
+<!-- test: render string value -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+[hello]
+
+<!-- test: render integer value -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+[42]
+
+<!-- test: render negative integer -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": -7}}
+<!-- out -->
+[-7]
+
+<!-- test: render float value -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 3.14}}
+<!-- out -->
+[3.14]
+
+<!-- test: render whole float strips trailing zero -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 5.0}}
+<!-- out -->
+[5]
+
+<!-- test: render float strips trailing zeros -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 100.10}}
+<!-- out -->
+[100.1]
+
+<!-- test: render boolean true -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": true}}
+<!-- out -->
+[true]
+
+<!-- test: render boolean false -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": false}}
+<!-- out -->
+[false]
+
+<!-- test: render null as empty -->
+<!-- in -->
+[<t-var name="x">fallback</t-var>]
+<!-- context -->
+{"data": {"x": null}}
+<!-- out -->
+[fallback]
+
+<!-- test: render zero integer -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": 0}}
+<!-- out -->
+[0]
+
+<!-- test: render negative float -->
+<!-- in -->
+[<t-var name="x" />]
+<!-- context -->
+{"data": {"x": -2.5}}
+<!-- out -->
+[-2.5]
+
+<!-- test: render integer in mixed template -->
+<!-- in -->
+<p>Count: <t-var name="count" /></p>
+<!-- context -->
+{"data": {"count": 99}}
+<!-- out -->
+<p>Count: 99</p>
+
+<!-- test: render float in mixed template -->
+<!-- in -->
+<p>Price: $<t-var name="price" /></p>
+<!-- context -->
+{"data": {"price": 29.99}}
+<!-- out -->
+<p>Price: $29.99</p>
+
+<!-- test: render boolean in mixed template -->
+<!-- in -->
+<p>Active: <t-var name="active" /></p>
+<!-- context -->
+{"data": {"active": true}}
+<!-- out -->
+<p>Active: true</p>
+
+<!-- test: render integer escapes html context -->
+<!-- in -->
+<t-var name="x" />
+<!-- context -->
+{"data": {"x": 42}}
+<!-- out -->
+42
+
+<!-- test: render nested integer via dot-path -->
+<!-- in -->
+[<t-var name="page.order" />]
+<!-- context -->
+{"data": {"page": {"order": 3}}}
+<!-- out -->
+[3]
+
+<!-- test: render nested float via dot-path -->
+<!-- in -->
+[<t-var name="item.price" />]
+<!-- context -->
+{"data": {"item": {"price": 9.99}}}
+<!-- out -->
+[9.99]
+
+<!-- test: render nested boolean via dot-path -->
+<!-- in -->
+[<t-var name="page.draft" />]
+<!-- context -->
+{"data": {"page": {"draft": false}}}
+<!-- out -->
+[false]
