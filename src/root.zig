@@ -181,6 +181,12 @@ pub const Engine = struct {
         self.cache.clearRetainingCapacity();
     }
 
+    /// Returns whether a template with the given name is in the cache.
+    /// Serve-phase safe (`*const Engine`); no allocation.
+    pub fn hasTemplate(self: *const Engine, name: []const u8) bool {
+        return self.cache.contains(name);
+    }
+
     /// Recursively scans `base_path` and loads all files matching `extension` into
     /// the template cache. Template names are paths relative to `base_path`
     /// (e.g. `"layouts/page.html"`). Files are loaded in sorted order for
@@ -619,6 +625,28 @@ test "engine clearTemplates" {
     var resolver: Resolver = .{};
     try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "a.html", &ctx, resolver.loader(), .{}));
     try testing.expectError(error.TemplateNotFound, engine.renderTemplate(testing.allocator, "b.html", &ctx, resolver.loader(), .{}));
+}
+
+test "engine hasTemplate returns true for cached template" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "<p>hello</p>");
+    try testing.expect(engine.hasTemplate("page.html"));
+}
+
+test "engine hasTemplate returns false for missing template" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try testing.expect(!engine.hasTemplate("ghost.html"));
+}
+
+test "engine hasTemplate returns false after removeTemplate" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("tmp.html", "hello");
+    try testing.expect(engine.hasTemplate("tmp.html"));
+    engine.removeTemplate("tmp.html");
+    try testing.expect(!engine.hasTemplate("tmp.html"));
 }
 
 test "engine HTMX fragment pattern" {

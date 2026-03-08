@@ -283,6 +283,16 @@ pub const Loader = struct {
     pub fn getSource(self: Loader, a: Allocator, name: []const u8) Allocator.Error!?[]const u8 {
         return self.getSourceFn(self.ptr, a, name);
     }
+
+    /// A loader that always returns null. Use for standalone rendering without includes.
+    pub const noop: Loader = .{
+        .ptr = undefined,
+        .getSourceFn = struct {
+            fn f(_: *const anyopaque, _: Allocator, _: []const u8) Allocator.Error!?[]const u8 {
+                return null;
+            }
+        }.f,
+    };
 };
 
 /// Maps template names to source strings. Used by `<t-include>` and `<t-extend>` at render time.
@@ -358,6 +368,23 @@ test "Resolver.loader returns owned copies" {
     defer testing.allocator.free(s2);
     try testing.expectEqualStrings(s1, s2);
     try testing.expect(s1.ptr != s2.ptr);
+}
+
+test "Loader.noop returns null for any name" {
+    const source = try Loader.noop.getSource(testing.allocator, "anything.html");
+    try testing.expect(source == null);
+}
+
+test "Loader.noop works with Engine.render" {
+    const toupee = @import("root.zig");
+    var engine = try toupee.Engine.init(testing.allocator);
+    defer engine.deinit();
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.put("x", .{ .string = "hello" });
+    const result = try engine.render(testing.allocator, "<t-var name=\"x\" />", &ctx, Loader.noop, .{});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("hello", result);
 }
 
 test "putAt simple key" {

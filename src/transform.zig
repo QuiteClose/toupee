@@ -296,14 +296,98 @@ fn parseIsoDate(s: []const u8) ?DateParts {
     const day = std.fmt.parseInt(u8, s[8..10], 10) catch return null;
     if (month < 1 or month > 12 or day < 1 or day > 31) return null;
     var d = DateParts{ .year = year, .month = month, .day = day };
+    var tz_start: usize = 10;
     if (s.len >= 19 and (s[10] == 'T' or s[10] == ' ')) {
         if (s[13] == ':' and s[16] == ':') {
             d.hour = std.fmt.parseInt(u8, s[11..13], 10) catch return null;
             d.minute = std.fmt.parseInt(u8, s[14..16], 10) catch return null;
             d.second = std.fmt.parseInt(u8, s[17..19], 10) catch return null;
+            tz_start = 19;
         }
     }
+    if (tz_start < s.len) {
+        const offset = parseTzOffset(s[tz_start..]) orelse return null;
+        if (offset != 0) d = adjustMinutes(d, -offset);
+    }
     return d;
+}
+
+fn parseTzOffset(s: []const u8) ?i32 {
+    if (s.len == 0) return @as(i32, 0);
+    if (s[0] == 'Z') return @as(i32, 0);
+    if (s[0] != '+' and s[0] != '-') return null;
+    const sign: i32 = if (s[0] == '+') 1 else -1;
+    const rest = s[1..];
+    if (rest.len >= 5 and rest[2] == ':') {
+        const h = std.fmt.parseInt(i32, rest[0..2], 10) catch return null;
+        const m = std.fmt.parseInt(i32, rest[3..5], 10) catch return null;
+        return sign * (h * 60 + m);
+    }
+    if (rest.len >= 2) {
+        const h = std.fmt.parseInt(i32, rest[0..2], 10) catch return null;
+        return sign * h * 60;
+    }
+    if (rest.len == 1) {
+        const h = std.fmt.parseInt(i32, rest[0..1], 10) catch return null;
+        return sign * h * 60;
+    }
+    return null;
+}
+
+fn isLeapYear(year: u16) bool {
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
+}
+
+fn daysInMonth(month: u8, year: u16) u8 {
+    return switch (month) {
+        1, 3, 5, 7, 8, 10, 12 => 31,
+        4, 6, 9, 11 => 30,
+        2 => if (isLeapYear(year)) @as(u8, 29) else @as(u8, 28),
+        else => 31,
+    };
+}
+
+fn adjustMinutes(d: DateParts, offset: i32) DateParts {
+    var total_min: i32 = @as(i32, d.hour) * 60 + @as(i32, d.minute) + offset;
+    var day: i32 = @intCast(d.day);
+    var month: i32 = @intCast(d.month);
+    var year: i32 = @intCast(d.year);
+    const second = d.second;
+
+    while (total_min < 0) {
+        total_min += 24 * 60;
+        day -= 1;
+        if (day < 1) {
+            month -= 1;
+            if (month < 1) {
+                month = 12;
+                year -= 1;
+            }
+            day = daysInMonth(@intCast(month), @intCast(year));
+        }
+    }
+    while (total_min >= 24 * 60) {
+        total_min -= 24 * 60;
+        day += 1;
+        const dim: i32 = daysInMonth(@intCast(month), @intCast(year));
+        if (day > dim) {
+            day = 1;
+            month += 1;
+            if (month > 12) {
+                month = 1;
+                year += 1;
+            }
+        }
+    }
+
+    return .{
+        .year = @intCast(year),
+        .month = @intCast(month),
+        .day = @intCast(day),
+        .hour = @intCast(@divTrunc(total_min, 60)),
+        .minute = @intCast(@mod(total_min, 60)),
+        .second = second,
+    };
 }
 
 const month_names_full = [_][]const u8{
@@ -314,6 +398,23 @@ const month_names_abbr = [_][]const u8{
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 };
+
+const day_names_full = [_][]const u8{
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+};
+const day_names_abbr = [_][]const u8{
+    "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+};
+
+/// Tomohiko Sakamoto's algorithm. Returns 0=Sunday .. 6=Saturday.
+fn dayOfWeek(year: u16, month: u8, day: u8) u3 {
+    const t = [_]u8{ 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+    var y: i32 = @intCast(year);
+    if (month < 3) y -= 1;
+    const ymod: u32 = @intCast(@mod(y, 400));
+    const val: u32 = ymod + ymod / 4 - ymod / 100 + t[month - 1] + day;
+    return @intCast(val % 7);
+}
 
 fn formatDate(a: Allocator, d: DateParts, fmt: []const u8) Allocator.Error![]u8 {
     var out: std.ArrayList(u8) = .{};
@@ -330,6 +431,28 @@ fn formatDate(a: Allocator, d: DateParts, fmt: []const u8) Allocator.Error![]u8 
                 'S' => try appendPadded(&out, a, d.second, 2),
                 'B' => try out.appendSlice(a, month_names_full[d.month - 1]),
                 'b' => try out.appendSlice(a, month_names_abbr[d.month - 1]),
+                'A' => try out.appendSlice(a, day_names_full[dayOfWeek(d.year, d.month, d.day)]),
+                'a' => try out.appendSlice(a, day_names_abbr[dayOfWeek(d.year, d.month, d.day)]),
+                'p' => try out.appendSlice(a, if (d.hour >= 12) "PM" else "AM"),
+                'P' => try out.appendSlice(a, if (d.hour >= 12) "pm" else "am"),
+                'I' => {
+                    const h12 = d.hour % 12;
+                    try appendPadded(&out, a, if (h12 == 0) 12 else h12, 2);
+                },
+                'F' => {
+                    try appendPadded(&out, a, @intCast(d.year), 4);
+                    try out.append(a, '-');
+                    try appendPadded(&out, a, d.month, 2);
+                    try out.append(a, '-');
+                    try appendPadded(&out, a, d.day, 2);
+                },
+                'T' => {
+                    try appendPadded(&out, a, d.hour, 2);
+                    try out.append(a, ':');
+                    try appendPadded(&out, a, d.minute, 2);
+                    try out.append(a, ':');
+                    try appendPadded(&out, a, d.second, 2);
+                },
                 '%' => try out.append(a, '%'),
                 else => {
                     try out.append(a, '%');
@@ -738,6 +861,134 @@ test "date transform literal percent" {
     const r1 = try dateTransform(testing.allocator, "2026-03-05", &.{"%%"});
     defer testing.allocator.free(r1);
     try testing.expectEqualStrings("%", r1);
+}
+
+// ---- Timezone parsing tests ----
+
+test "date transform Z suffix is UTC" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T10:30:00Z", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-15 10:30:00", result);
+}
+
+test "date transform positive hour offset" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T10:30:00+08", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-15 02:30:00", result);
+}
+
+test "date transform negative hour offset" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T10:30:00-05", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-15 15:30:00", result);
+}
+
+test "date transform hour:minute offset" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T10:30:00+05:30", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-15 05:00:00", result);
+}
+
+test "date transform midnight rollover backward" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T01:00:00+08", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-14 17:00:00", result);
+}
+
+test "date transform midnight rollover forward" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T23:00:00-05", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-16 04:00:00", result);
+}
+
+test "date transform month boundary leap year" {
+    const result = try dateTransform(testing.allocator, "2024-03-01T01:00:00+08", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-02-29 17:00:00", result);
+}
+
+test "date transform year boundary" {
+    const result = try dateTransform(testing.allocator, "2024-01-01T01:00:00+08", &.{"%Y-%m-%d %H:%M:%S"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2023-12-31 17:00:00", result);
+}
+
+test "date transform date-only no timezone unchanged" {
+    const result = try dateTransform(testing.allocator, "2024-03-15", &.{"%Y-%m-%d"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-15", result);
+}
+
+// ---- Format specifier tests ----
+
+test "date transform %A full weekday" {
+    const result = try dateTransform(testing.allocator, "2024-01-01", &.{"%A"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Monday", result);
+}
+
+test "date transform %a abbreviated weekday" {
+    const result = try dateTransform(testing.allocator, "2024-01-01", &.{"%a"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Mon", result);
+}
+
+test "date transform %p AM" {
+    const result = try dateTransform(testing.allocator, "2024-01-01T09:00:00", &.{"%p"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("AM", result);
+}
+
+test "date transform %p PM" {
+    const result = try dateTransform(testing.allocator, "2024-01-01T14:00:00", &.{"%p"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("PM", result);
+}
+
+test "date transform %P lowercase am/pm" {
+    const r1 = try dateTransform(testing.allocator, "2024-01-01T09:00:00", &.{"%P"});
+    defer testing.allocator.free(r1);
+    try testing.expectEqualStrings("am", r1);
+
+    const r2 = try dateTransform(testing.allocator, "2024-01-01T14:00:00", &.{"%P"});
+    defer testing.allocator.free(r2);
+    try testing.expectEqualStrings("pm", r2);
+}
+
+test "date transform %I 12-hour clock" {
+    const r_midnight = try dateTransform(testing.allocator, "2024-01-01T00:00:00", &.{"%I"});
+    defer testing.allocator.free(r_midnight);
+    try testing.expectEqualStrings("12", r_midnight);
+
+    const r_noon = try dateTransform(testing.allocator, "2024-01-01T12:00:00", &.{"%I"});
+    defer testing.allocator.free(r_noon);
+    try testing.expectEqualStrings("12", r_noon);
+
+    const r_1am = try dateTransform(testing.allocator, "2024-01-01T01:00:00", &.{"%I"});
+    defer testing.allocator.free(r_1am);
+    try testing.expectEqualStrings("01", r_1am);
+
+    const r_1pm = try dateTransform(testing.allocator, "2024-01-01T13:00:00", &.{"%I"});
+    defer testing.allocator.free(r_1pm);
+    try testing.expectEqualStrings("01", r_1pm);
+}
+
+test "date transform %F full date shorthand" {
+    const result = try dateTransform(testing.allocator, "2024-03-15", &.{"%F"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("2024-03-15", result);
+}
+
+test "date transform %T time shorthand" {
+    const result = try dateTransform(testing.allocator, "2024-03-15T14:30:45", &.{"%T"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("14:30:45", result);
+}
+
+test "date transform combined realistic format" {
+    const result = try dateTransform(testing.allocator, "2024-01-01T14:30:00", &.{"%A, %B %e, %Y at %I:%M %p"});
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("Monday, January 1, 2024 at 02:30 PM", result);
 }
 
 test "parseNumber best-effort" {
