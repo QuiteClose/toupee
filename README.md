@@ -1,5 +1,7 @@
 # Toupee
 
+[![CI](https://github.com/QuiteClose/toupee/actions/workflows/ci.yml/badge.svg)](https://github.com/QuiteClose/toupee/actions/workflows/ci.yml)
+
 *Seamless HTML templates, zero magic.*
 
 A template engine in Zig for static sites and live servers. Templates are plain HTML with `<t-*>` elements for inheritance, slots, loops, conditionals, and transforms. No custom delimiters, no embedded language. Feed it templates and data, get HTML back.
