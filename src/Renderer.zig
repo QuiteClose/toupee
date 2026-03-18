@@ -160,7 +160,7 @@ fn renderVariable(
 ) RenderError!void {
     var value: []const u8 = "";
 
-    if (ctx.resolve(v.name)) |resolved| {
+    if (try ctx.resolveAlloc(v.name, state.a)) |resolved| {
         if (try resolved.toStringValue(state.a)) |val| {
             value = val;
         } else if (v.has_body) {
@@ -222,8 +222,7 @@ fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out:
     var child_ctx = if (inc.isolated) Context.init(state.a) else try Context.initFrom(state.a, ctx);
     if (inc.isolated) {
         for (inc.context_bindings) |binding| {
-            const root: V.Value = .{ .map = ctx.data };
-            if (root.resolve(binding.path)) |val|
+            if (try ctx.resolveAlloc(binding.path, state.a)) |val|
                 try child_ctx.put(binding.key, val);
         }
     }
@@ -328,7 +327,7 @@ fn evaluateCondition(state: State, cond: N.Condition, ctx: *const Context) Rende
     if (cond.source == .attr) {
         return evalComparison(cond.comparison, ctx.getAttr(cond.name));
     }
-    const resolved = ctx.resolve(cond.name);
+    const resolved = try ctx.resolveAlloc(cond.name, state.a);
     const val_str = if (resolved) |rv| (try rv.toStringValue(state.a)) orelse "" else "";
     return switch (cond.comparison) {
         .exists => resolved != null,
@@ -357,7 +356,7 @@ fn evalComparison(comparison: N.Condition.Comparison, value: ?[]const u8) bool {
 }
 
 fn renderLoop(state: State, loop: N.Loop, ctx: *Context, depth: usize, out: *std.ArrayList(u8)) RenderError!void {
-    const resolved = ctx.resolve(loop.collection) orelse {
+    const resolved = (try ctx.resolveAlloc(loop.collection, state.a)) orelse {
         if (loop.else_body.len > 0) try out.appendSlice(state.a, try renderNodes(state, loop.else_body, ctx, depth));
         return;
     };
@@ -421,7 +420,7 @@ fn renderBoundTag(state: State, bt: N.BoundTag, ctx: *const Context, out: *std.A
             .literal => |text| try out.appendSlice(state.a, text),
             .binding => |b| {
                 const value = if (b.is_var)
-                    (if (ctx.resolve(b.ref_name)) |rv| try rv.toStringValue(state.a) else null)
+                    (if (try ctx.resolveAlloc(b.ref_name, state.a)) |rv| try rv.toStringValue(state.a) else null)
                 else
                     ctx.getAttr(b.ref_name);
                 if (value) |v| {

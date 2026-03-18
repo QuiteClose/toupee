@@ -204,9 +204,23 @@ pub const Context = struct {
     }
 
     /// Looks up a dot-separated path in `data` (e.g. `page.title`).
+    /// For paths containing `$(expr)` dynamic segments, use `resolveAlloc` instead.
     pub fn resolve(self: *const Context, path: []const u8) ?Value {
         const root: Value = .{ .map = self.data };
         return root.resolve(path);
+    }
+
+    /// Like `resolve` but supports dynamic path segments via `$(expr)` syntax.
+    /// When a segment is `$(expr)`, `expr` is resolved as a path; the result (string or integer)
+    /// is used as the key for that segment. Nested `$()` is supported (e.g. `a.$(b.$(c))`).
+    /// Returns null if any segment is missing or if a dynamic expression fails to resolve.
+    /// Caller must pass an allocator for any temporary strings (e.g. integer-to-string for list indices).
+    pub fn resolveAlloc(self: *const Context, path: []const u8, a: Allocator) Allocator.Error!?Value {
+        if (std.mem.indexOf(u8, path, "$(") == null) {
+            return self.resolve(path);
+        }
+        const root: Value = .{ .map = self.data };
+        return resolveDynamic(root, self, path, a);
     }
 
     /// Resolves path and returns the string payload, or null if not found or not a string.
@@ -270,6 +284,73 @@ pub const Context = struct {
         return self.slots.contains(key);
     }
 };
+
+/// Parses path into segments (static or dynamic) and navigates from `current` using `ctx` for
+/// resolving dynamic expressions. Used by resolveAlloc.
+fn resolveDynamic(current: Value, ctx: *const Context, path: []const u8, a: Allocator) Allocator.Error!?Value {
+    if (path.len == 0) return current;
+    const seg_rest = nextPathSegment(path);
+    if (seg_rest.segment.len == 0) return resolveDynamic(current, ctx, seg_rest.rest, a);
+
+    const key: []const u8 = key_blk: {
+        if (seg_rest.segment.len >= 2 and seg_rest.segment[0] == '$' and seg_rest.segment[1] == '(') {
+            const inner = seg_rest.segment[2 .. seg_rest.segment.len - 1];
+            const inner_val = try ctx.resolveAlloc(inner, a) orelse return null;
+            switch (inner_val) {
+                .integer => |i| break :key_blk (try std.fmt.allocPrint(a, "{d}", .{i})),
+                .string => |s| break :key_blk s,
+                else => {
+                    if (try inner_val.toStringValue(a)) |s| break :key_blk s;
+                    return null;
+                },
+            }
+        }
+        break :key_blk seg_rest.segment;
+    };
+
+    const next_val = switch (current) {
+        .map => |m| m.get(key),
+        .list => blk: {
+            const idx = std.fmt.parseInt(usize, key, 10) catch return null;
+            if (idx >= current.list.len) return null;
+            break :blk current.list[idx];
+        },
+        else => return null,
+    } orelse return null;
+
+    if (seg_rest.rest.len == 0) return next_val;
+    return resolveDynamic(next_val, ctx, seg_rest.rest, a);
+}
+
+const PathSegmentResult = struct { segment: []const u8, rest: []const u8 };
+
+fn nextPathSegment(path: []const u8) PathSegmentResult {
+    if (path.len == 0) return .{ .segment = "", .rest = "" };
+    var i: usize = 0;
+    if (path.len >= 2 and path[0] == '$' and path[1] == '(') {
+        i = 2;
+        var depth: usize = 1;
+        while (i < path.len) {
+            if (path[i] == '(') depth += 1
+            else if (path[i] == ')') {
+                depth -= 1;
+                if (depth == 0) {
+                    i += 1;
+                    break;
+                }
+            }
+            i += 1;
+        }
+        const segment = path[0..i];
+        var rest = path[i..];
+        if (rest.len > 0 and rest[0] == '.') rest = rest[1..];
+        return .{ .segment = segment, .rest = rest };
+    }
+    while (i < path.len and path[i] != '.') i += 1;
+    const segment = path[0..i];
+    const rest = if (i < path.len) path[i + 1 ..] else path[path.len..];
+    return .{ .segment = segment, .rest = rest };
+}
 
 /// Runtime-polymorphic template source provider. Fat-pointer pattern matching `std.mem.Allocator`.
 /// Implementations: `Resolver.loader()` (in-memory map), `FileSystemLoader`, `ChainLoader`.

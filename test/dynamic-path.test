@@ -1,0 +1,143 @@
+<!-- test: basic dynamic path resolution -->
+<!-- in -->
+<t-var name="palette.$(role)" />
+<!-- context -->
+{"data": {"role": "black", "palette": {"black": "#000000", "white": "#ffffff"}}}
+<!-- out -->
+#000000
+
+<!-- test: dynamic first segment -->
+<!-- in -->
+<t-var name="$(key).value" />
+<!-- context -->
+{"data": {"key": "items", "items": {"value": "found"}}}
+<!-- out -->
+found
+
+<!-- test: dynamic middle segment with further navigation -->
+<!-- in -->
+<t-var name="a.$(b).c" />
+<!-- context -->
+{"data": {"b": "x", "a": {"x": {"c": "deep"}}}}
+<!-- out -->
+deep
+
+<!-- test: multiple dynamic segments -->
+<!-- in -->
+<t-var name="a.$(b).d.$(e)" />
+<!-- context -->
+{"data": {"b": "x", "e": "z", "a": {"x": {"d": {"z": "multi"}}}}}
+<!-- out -->
+multi
+
+<!-- test: nested dynamic resolution -->
+<!-- in -->
+<t-var name="palette.$(styles.$(mode).text)" />
+<!-- context -->
+{"data": {"mode": "light", "styles": {"light": {"text": "black"}, "dark": {"text": "white"}}, "palette": {"black": "#000", "white": "#fff"}}}
+<!-- out -->
+#000
+
+<!-- test: colour scheme indirection -->
+<!-- in -->
+<t-var name="colours.$(scheme).light.palette.$(colours.$(scheme).light.styles.text.primary)" />
+<!-- context -->
+{"data": {"scheme": "mono", "colours": {"mono": {"light": {"palette": {"black": "#000000", "blue": "#0066cc"}, "styles": {"text": {"primary": "black", "link": "blue"}}}}}}}
+<!-- out -->
+#000000
+
+<!-- test: dynamic path in t-raw -->
+<!-- in -->
+<t-raw name="palette.$(role)" />
+<!-- context -->
+{"data": {"role": "blue", "palette": {"blue": "<b>#0066cc</b>"}}}
+<!-- out -->
+<b>#0066cc</b>
+
+<!-- test: dynamic path in t-if -->
+<!-- in -->
+<t-if var="data.$(key)">exists</t-if>
+<!-- context -->
+{"data": {"key": "name", "data": {"name": "hello"}}}
+<!-- out -->
+exists
+
+<!-- test: dynamic path in t-if not-exists -->
+<!-- in -->
+<t-if var="data.$(key)" not-exists>missing</t-if>
+<!-- context -->
+{"data": {"key": "nope", "data": {"name": "hello"}}}
+<!-- out -->
+missing
+
+<!-- test: dynamic path in t-for collection -->
+<!-- in -->
+<t-for item in collections.$(name)><t-var name="item.title" />,</t-for>
+<!-- context -->
+{"data": {"name": "posts", "collections": {"posts": [{"title": "A"}, {"title": "B"}]}}}
+<!-- out -->
+A,B,
+
+<!-- test: dynamic path in attribute binding -->
+<!-- in -->
+<a t-var:href="links.$(target)">click</a>
+<!-- context -->
+{"data": {"target": "home", "links": {"home": "/", "about": "/about/"}}}
+<!-- out -->
+<a href="/">click</a>
+
+<!-- test: dynamic path with transform -->
+<!-- in -->
+<t-var name="palette.$(role)" transform="upper" />
+<!-- context -->
+{"data": {"role": "black", "palette": {"black": "#abcdef"}}}
+<!-- out -->
+#ABCDEF
+
+<!-- test: dynamic path with default body -->
+<!-- in -->
+<t-var name="missing.$(key)">fallback</t-var>
+<!-- context -->
+{"data": {"key": "nope"}}
+<!-- out -->
+fallback
+
+<!-- test: inner resolves to integer for list access -->
+<!-- in -->
+<t-var name="items.$(idx).name" />
+<!-- context -->
+{"data": {"idx": 1, "items": [{"name": "zero"}, {"name": "one"}, {"name": "two"}]}}
+<!-- out -->
+one
+
+<!-- test: no dynamic segments regression -->
+<!-- in -->
+<t-var name="simple.path" />
+<!-- context -->
+{"data": {"simple": {"path": "static"}}}
+<!-- out -->
+static
+
+<!-- test: no dynamic segments dotless regression -->
+<!-- in -->
+<t-var name="title" />
+<!-- context -->
+{"data": {"title": "plain"}}
+<!-- out -->
+plain
+
+<!-- test: inner resolves to missing key -->
+<!-- in -->
+<t-var name="palette.$(role)">default</t-var>
+<!-- context -->
+{"data": {"role": "missing", "palette": {"black": "#000"}}}
+<!-- out -->
+default
+
+<!-- test: inner expression itself is missing -->
+<!-- in -->
+<t-var name="palette.$(nope)">default</t-var>
+<!-- context -->
+{"data": {"palette": {"black": "#000"}}}
+<!-- out -->
+default

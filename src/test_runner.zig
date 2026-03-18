@@ -373,6 +373,7 @@ const test_file_names = [_][]const u8{
     "types-transform.test",
     "types-compare.test",
     "types-extremes.test",
+    "dynamic-path.test",
 };
 
 test "toupee test suite" {
