@@ -148,6 +148,17 @@ fn renderNodes(state: State, nodes: []const Node, ctx: *Context, depth: usize) R
     return out.toOwnedSlice(state.a);
 }
 
+/// When `<t-define>` with no name replaces the default slot (`""`), the previous slot fill
+/// (usually the page body) is stored under this key so inner `<t-slot />` can render it.
+const default_slot_super_key = "__t_inner_body__";
+
+fn cloneSlotMap(a: Allocator, src: std.StringArrayHashMapUnmanaged([]const u8)) Allocator.Error!std.StringArrayHashMapUnmanaged([]const u8) {
+    var dest: std.StringArrayHashMapUnmanaged([]const u8) = .{};
+    var it = src.iterator();
+    while (it.next()) |e| try dest.put(a, e.key_ptr.*, e.value_ptr.*);
+    return dest;
+}
+
 // ---- Element renderers ----
 
 fn renderVariable(
@@ -198,7 +209,17 @@ fn renderSlot(state: State, s: N.Slot, ctx: *Context, depth: usize, out: *std.Ar
     const indent = try state.a.dupe(u8, indent_mod.detectIndent(out.items));
     if (ctx.getSlot(s.name)) |content| {
         const parse_result = try Parser.parse(state.a, content, .{ .err_detail = ctx.err_detail });
-        const rendered = try renderNodes(state, parse_result.nodes, ctx, depth);
+        var fill_ctx = try Context.initFrom(state.a, ctx);
+        // Default-slot fill from anonymous `<t-define>` overwrites ""; inner `<t-slot />` must see the
+        // parked body, not recurse into the wrapper again.
+        if (s.name.len == 0 and ctx.hasSlot(default_slot_super_key)) {
+            fill_ctx.slots = try cloneSlotMap(state.a, ctx.slots);
+            if (fill_ctx.slots.get(default_slot_super_key)) |inner| {
+                try fill_ctx.slots.put(state.a, "", inner);
+                _ = fill_ctx.slots.swapRemove(default_slot_super_key);
+            }
+        }
+        const rendered = try renderNodes(state, parse_result.nodes, &fill_ctx, depth);
         try indent_mod.appendIndented(state.a, out, rendered, indent);
     } else if (s.default_body.len > 0) {
         const rendered = try renderNodes(state, s.default_body, ctx, depth);
@@ -220,11 +241,9 @@ fn renderInclude(state: State, inc: N.Include, ctx: *Context, depth: usize, out:
     for (inc.attrs) |attr| try inc_attrs.put(state.a, attr.name, attr.value);
 
     var child_ctx = if (inc.isolated) Context.init(state.a) else try Context.initFrom(state.a, ctx);
-    if (inc.isolated) {
-        for (inc.context_bindings) |binding| {
-            if (try ctx.resolveAlloc(binding.path, state.a)) |val|
-                try child_ctx.put(binding.key, val);
-        }
+    for (inc.context_bindings) |binding| {
+        if (try ctx.resolveAlloc(binding.path, state.a)) |val|
+            try child_ctx.put(binding.key, val);
     }
     child_ctx.attrs = inc_attrs;
     child_ctx.slots = child_slots;
@@ -248,7 +267,14 @@ fn buildSlotMap(a: Allocator, ctx: *const Context, defines: []const N.Define) Re
     var slots: std.StringArrayHashMapUnmanaged([]const u8) = .{};
     var sit = ctx.slots.iterator();
     while (sit.next()) |entry| try slots.put(a, entry.key_ptr.*, entry.value_ptr.*);
-    for (defines) |def| try slots.put(a, def.name, def.raw_source);
+    for (defines) |def| {
+        if (def.name.len == 0) {
+            if (slots.get("")) |prev| {
+                try slots.put(a, default_slot_super_key, prev);
+            }
+        }
+        try slots.put(a, def.name, def.raw_source);
+    }
     return slots;
 }
 
@@ -360,7 +386,13 @@ fn renderLoop(state: State, loop: N.Loop, ctx: *Context, depth: usize, out: *std
         if (loop.else_body.len > 0) try out.appendSlice(state.a, try renderNodes(state, loop.else_body, ctx, depth));
         return;
     };
-    const list = resolved.asList() orelse {
+    const list = blk: {
+        if (resolved.asList()) |l| break :blk l;
+        if (resolved.asMap()) |m| {
+            if (m.get("items")) |iv| {
+                if (iv.asList()) |items| break :blk items;
+            }
+        }
         if (loop.else_body.len > 0) try out.appendSlice(state.a, try renderNodes(state, loop.else_body, ctx, depth));
         return;
     };

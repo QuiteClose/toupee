@@ -400,10 +400,8 @@ fn parseInclude(state: ParseState, input: []const u8, start: usize, nodes: *std.
     }
 
     const isolated = h.hasBoolAttr(tag, "isolated");
-    const context_bindings = if (isolated)
-        try parseContextBindings(state, h.extractAttrValue(tag, "context"))
-    else
-        &[_]N.ContextBinding{};
+    // Context bindings apply to both isolated and inherited includes (overlay onto child context).
+    const context_bindings = try parseContextBindings(state, h.extractAttrValue(tag, "context"));
 
     try nodes.append(state.a, .{ .include = .{
         .template = tmpl_name,
@@ -681,8 +679,13 @@ const DefineResult = struct {
     anonymous_body_source: []const u8 = "",
 };
 
+/// True if `input` starts with `<t-define>` or `<t-define ...>` (opening tag).
+/// `openTag("define")` is `<t-define ` only; bare `<t-define>` must be recognized too.
+fn startsWithDefineOpen(input: []const u8) bool {
+    return std.mem.startsWith(u8, input, "<t-define>") or std.mem.startsWith(u8, input, openTag("define"));
+}
+
 fn parseDefines(state: ParseState, body: []const u8, body_offset: usize) ParseError!DefineResult {
-    const define_open = openTag("define");
     const define_close = comptime closeTag("define");
     var defines: std.ArrayList(N.Define) = .{};
     var seen_names: std.ArrayList([]const u8) = .{};
@@ -690,7 +693,7 @@ fn parseDefines(state: ParseState, body: []const u8, body_offset: usize) ParseEr
     var i: usize = 0;
 
     while (i < body.len) {
-        if (std.mem.startsWith(u8, body[i..], define_open)) {
+        if (startsWithDefineOpen(body[i..])) {
             const result = try parseSingleDefine(state, body[i..], define_close, body_offset + i);
             for (seen_names.items) |seen| {
                 if (std.mem.eql(u8, seen, result.name)) {
@@ -727,11 +730,9 @@ fn parseSingleDefine(state: ParseState, rest: []const u8, define_close: []const 
         return error.MalformedElement;
     };
     const tag = rest[0 .. tag_end + 1];
+    // Default slot name "" matches anonymous / default slot fills (`<t-define>` with no attrs).
     const name = h.extractAttrValue(tag, "name") orelse
-        h.extractAttrValue(tag, "slot") orelse {
-        state.fail(define_offset, .malformed_element, "missing 'name' or 'slot' attribute on <t-define>");
-        return error.MalformedElement;
-    };
+        h.extractAttrValue(tag, "slot") orelse "";
     const content_start = tag_end + 1;
     const close = std.mem.indexOf(u8, rest[content_start..], define_close) orelse {
         state.fail(define_offset, .malformed_element, "missing closing </t-define> tag");
@@ -1026,6 +1027,25 @@ test "parse extend" {
     try testing.expectEqualStrings("content", ext.defines[0].name);
 }
 
+test "parse extend with bare t-define default slot" {
+    const source =
+        \\<t-extend template="base.html">
+        \\<t-define>
+        \\  <t-slot />
+        \\</t-define>
+    ;
+    var result = try parse(testing.allocator, source, .{});
+    defer result.deinit();
+    const ext = result.nodes[0].extend;
+    try testing.expectEqual(@as(usize, 1), ext.defines.len);
+    try testing.expectEqualStrings("", ext.defines[0].name);
+    try testing.expectEqual(@as(usize, 1), ext.defines[0].body.len);
+    switch (ext.defines[0].body[0]) {
+        .slot => |s| try testing.expectEqualStrings("", s.name),
+        else => return error.ExpectedSlotNode,
+    }
+}
+
 test "parse for loop" {
     var result = try parse(testing.allocator, "<t-for item in items>body</t-for>", .{});
     defer result.deinit();
@@ -1255,6 +1275,18 @@ test "parse include not isolated by default" {
     defer result.deinit();
     try testing.expect(!result.nodes[0].include.isolated);
     try testing.expectEqual(@as(usize, 0), result.nodes[0].include.context_bindings.len);
+}
+
+test "parse include with context but not isolated" {
+    var result = try parse(testing.allocator,
+        \\<t-include template="list.html" context="document.children as posts" />
+    , .{});
+    defer result.deinit();
+    const inc = result.nodes[0].include;
+    try testing.expect(!inc.isolated);
+    try testing.expectEqual(@as(usize, 1), inc.context_bindings.len);
+    try testing.expectEqualStrings("document.children", inc.context_bindings[0].path);
+    try testing.expectEqualStrings("posts", inc.context_bindings[0].key);
 }
 
 test "parse conditional with not-exists" {

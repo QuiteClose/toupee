@@ -10,6 +10,19 @@
 <!-- out -->
 <html><body><p>Content</p></body></html>
 
+<!-- test: default slot body parked for inner t-slot in anonymous define -->
+<!-- in:base.html -->
+<html><body><t-slot /></body></html>
+<!-- in -->
+<t-extend template="base.html">
+<t-define>
+<div class="wrap"><t-slot /></div>
+</t-define>
+<!-- context -->
+{"slots":{"":"<p>Page</p>"}}
+<!-- out -->
+<html><body><div class="wrap"><p>Page</p></div></body></html>
+
 <!-- test: three-level extend with named slots -->
 <!-- in:base.html -->
 <html><t-slot name="content" /></html>
