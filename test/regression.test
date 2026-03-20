@@ -36,7 +36,8 @@ it&#x27;s a test
 <!-- Bug: The newline immediately after `<t-slot />` was a separate text node; slot fill ending -->
 <!-- with `\n` plus `appendIndented` produced an extra blank line before the next markup (e.g. -->
 <!-- `</body>`). -->
-<!-- Fix: Parser.parseSlot consumes one newline after the slot tag (self-closing and closing tag). -->
+<!-- Fixed: Parser.parseSlot consumes one line break after the tag (`\\n` or `\\r\\n`; self-closing -->
+<!-- and `</t-slot>`). -->
 <!-- in -->
 <body>
   <t-slot />

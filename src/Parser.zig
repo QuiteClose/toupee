@@ -329,6 +329,16 @@ fn parseComment(state: ParseState, input: []const u8, start: usize, offset: usiz
     return start + tag_end + 1 + close_pos + comment_close.len;
 }
 
+/// After `/>` or `</t-slot>`, if the next character starts a line break, skip it so a newline used to
+/// format the template does not become a text node (avoids an extra blank line when combined with
+/// slot fill that ends in `\n`).
+fn consumeOptionalLineBreakAfterSlotTag(input: []const u8, pos: usize) usize {
+    if (pos >= input.len) return pos;
+    if (input[pos] == '\r' and pos + 1 < input.len and input[pos + 1] == '\n') return pos + 2;
+    if (input[pos] == '\n') return pos + 1;
+    return pos;
+}
+
 fn parseAttrOutput(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
     const rest = input[start..];
     const end_offset = std.mem.indexOf(u8, rest, "/>") orelse {
@@ -356,7 +366,8 @@ fn parseSlot(state: ParseState, input: []const u8, start: usize, nodes: *std.Arr
 
     if (is_self_closing) {
         try nodes.append(state.a, .{ .slot = .{ .name = name, .source_pos = offset + start } });
-        return start + tag_end + 1;
+        const after_tag = start + tag_end + 1;
+        return consumeOptionalLineBreakAfterSlotTag(input, after_tag);
     }
 
     const slot_close = comptime closeTag("slot");
@@ -367,7 +378,8 @@ fn parseSlot(state: ParseState, input: []const u8, start: usize, nodes: *std.Arr
     const default_body = try parseContent(state, rest[tag_end + 1 .. tag_end + 1 + close_pos], offset + start + tag_end + 1);
 
     try nodes.append(state.a, .{ .slot = .{ .name = name, .default_body = default_body, .source_pos = offset + start } });
-    return start + tag_end + 1 + close_pos + slot_close.len;
+    const after_close = start + tag_end + 1 + close_pos + slot_close.len;
+    return consumeOptionalLineBreakAfterSlotTag(input, after_close);
 }
 
 fn parseInclude(state: ParseState, input: []const u8, start: usize, nodes: *std.ArrayList(Node), offset: usize) ParseError!usize {
@@ -966,6 +978,16 @@ test "parse slot self-closing" {
     const s = result.nodes[0].slot;
     try testing.expectEqualStrings("main", s.name);
     try testing.expectEqual(@as(usize, 0), s.default_body.len);
+}
+
+test "parse slot consumes one newline after self-closing tag" {
+    const src = "<body><t-slot />\n</body>";
+    var result = try parse(testing.allocator, src, .{});
+    defer result.deinit();
+    try testing.expectEqual(@as(usize, 3), result.nodes.len);
+    try testing.expectEqualStrings("<body>", result.nodes[0].text);
+    try testing.expectEqualStrings("", result.nodes[1].slot.name);
+    try testing.expectEqualStrings("</body>", result.nodes[2].text);
 }
 
 test "parse slot with default" {

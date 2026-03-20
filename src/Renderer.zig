@@ -918,9 +918,8 @@ test "renderToWriter matches render with let binding" {
     try testing.expectEqualStrings(buffered, out.items);
 }
 
-// Regression: newline after `<t-slot />` is a separate text node; slot fill ending in `\n` plus
-// `appendIndented` adds an extra blank line before the next markup. Parser should consume the
-// newline with the slot tag; until then this test fails.
+// Layout newline after `<t-slot />` is consumed in Parser.parseSlot so it is not a text node.
+// With slot fill ending in `\n` (host body), output must not have a blank line before the next tag.
 //
 // Input (1) layout template source, (2) default slot fill (host body HTML):
 //   template: "<body>\\n  <t-slot />\\n</body>"  — newline after `/>`, `</body>` flush with `<body>`
