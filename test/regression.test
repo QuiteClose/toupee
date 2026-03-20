@@ -31,3 +31,19 @@ it&#x27;s a test
 {"data": {"a_very_long_variable_name_that_is_definitely_not_going_to_match_anything_in_the_contex": "found"}}
 <!-- error: UndefinedVariable -->
 <!-- error-kind: undefined_variable -->
+
+<!-- test: newline after t-slot must not add blank line before following markup -->
+<!-- Bug: The newline immediately after `<t-slot />` was a separate text node; slot fill ending -->
+<!-- with `\n` plus `appendIndented` produced an extra blank line before the next markup (e.g. -->
+<!-- `</body>`). -->
+<!-- Fix: Parser.parseSlot consumes one newline after the slot tag (self-closing and closing tag). -->
+<!-- in -->
+<body>
+  <t-slot />
+</body>
+<!-- context -->
+{"slots": {"": "<section>x</section>\n"}}
+<!-- out -->
+<body>
+  <section>x</section>
+</body>

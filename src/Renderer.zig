@@ -918,6 +918,38 @@ test "renderToWriter matches render with let binding" {
     try testing.expectEqualStrings(buffered, out.items);
 }
 
+// Regression: newline after `<t-slot />` is a separate text node; slot fill ending in `\n` plus
+// `appendIndented` adds an extra blank line before the next markup. Parser should consume the
+// newline with the slot tag; until then this test fails.
+//
+// Input (1) layout template source, (2) default slot fill (host body HTML):
+//   template: "<body>\\n  <t-slot />\\n</body>"  — newline after `/>`, `</body>` flush with `<body>`
+//   slot "":  "<section>x</section>\\n"         — trailing newline like Djot/Markdown output
+test "no extra blank line: newline after t-slot plus slot fill ending with newline" {
+    const template =
+        \\<body>
+        \\  <t-slot />
+        \\</body>
+    ;
+    var parse_result = try Parser.parse(testing.allocator, template, .{});
+    defer parse_result.deinit();
+
+    var ctx = Context.init(testing.allocator);
+    defer ctx.deinit();
+    try ctx.setSlot("", "<section>x</section>\n");
+
+    var resolver: Resolver = .{};
+    const result = try render(testing.allocator, parse_result.nodes, &ctx, resolver.loader(), .{});
+    defer testing.allocator.free(result);
+
+    const expected =
+        \\<body>
+        \\  <section>x</section>
+        \\</body>
+    ;
+    try testing.expectEqualStrings(expected, result);
+}
+
 test "rich error with include stack" {
     const child_source = "<t-var name=\"missing\" />";
     const parent_source = "<t-include template=\"child.html\" />";
