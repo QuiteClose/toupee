@@ -99,6 +99,8 @@ pub const Condition = struct {
     pub const Comparison = union(enum) {
         exists,
         not_exists,
+        truthy,
+        not_truthy,
         equals: []const u8,
         not_equals: []const u8,
         contains: []const u8,

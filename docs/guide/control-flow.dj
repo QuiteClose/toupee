@@ -12,7 +12,21 @@ Render content when a variable exists:
 </t-if>
 ```
 
-The condition checks for _existence_, not truthiness. A variable set to an empty string, `false`, or `0` still exists and satisfies the condition.
+The default condition checks for _existence_, not truthiness. A variable set to an empty string, `false`, or `0` still exists and satisfies the condition. Use `truthy` when you need value-based checks (see below).
+
+### Truthiness checks
+
+```html
+<t-if var="show_sidebar" truthy>
+<aside>...</aside>
+</t-if>
+
+<t-if var="items" not-truthy>
+<p>Nothing to display.</p>
+</t-if>
+```
+
+`truthy` evaluates the value itself: non-empty strings, `true`, non-zero numbers, and non-empty lists/maps are truthy. Empty strings, `false`, zero, empty collections, `nil`, and missing variables are falsy.
 
 ### Equality checks
 

@@ -346,7 +346,7 @@ fn evaluateCondition(state: State, cond: N.Condition, ctx: *const Context) Rende
     if (cond.source == .slot) {
         const exists = ctx.hasSlot(cond.name);
         return switch (cond.comparison) {
-            .not_exists => !exists,
+            .not_exists, .not_truthy => !exists,
             else => exists,
         };
     }
@@ -358,6 +358,8 @@ fn evaluateCondition(state: State, cond: N.Condition, ctx: *const Context) Rende
     return switch (cond.comparison) {
         .exists => resolved != null,
         .not_exists => resolved == null,
+        .truthy => if (resolved) |rv| rv.isTruthy() else false,
+        .not_truthy => if (resolved) |rv| !rv.isTruthy() else true,
         .equals => |expected| if (resolved != null) std.mem.eql(u8, val_str, expected) else false,
         .not_equals => |expected| if (resolved != null) !std.mem.eql(u8, val_str, expected) else true,
         .contains => |needle| if (resolved != null) std.mem.indexOf(u8, val_str, needle) != null else false,
@@ -372,6 +374,8 @@ fn evalComparison(comparison: N.Condition.Comparison, value: ?[]const u8) bool {
     return switch (comparison) {
         .exists => value != null,
         .not_exists => value == null,
+        .truthy => if (value) |s| s.len > 0 else false,
+        .not_truthy => if (value) |s| s.len == 0 else true,
         .equals => |expected| if (value != null) std.mem.eql(u8, v, expected) else false,
         .not_equals => |expected| if (value != null) !std.mem.eql(u8, v, expected) else true,
         .contains => |needle| if (value != null) std.mem.indexOf(u8, v, needle) != null else false,

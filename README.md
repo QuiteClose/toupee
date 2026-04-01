@@ -79,7 +79,7 @@ Output:
 - **Scope isolation** -- `<t-include isolated context="post, site">` passes only named data to components
 - **Variables** -- `<t-var>` (escaped) and `<t-raw>` (unescaped) with dot-path resolution
 - **Attribute binding** -- `<a t-var:href="post.url">` binds variables to HTML attributes
-- **Conditionals** -- `<t-if>` with `equals`, `contains`, `starts-with`, `ends-with`, `matches` (glob)
+- **Conditionals** -- `<t-if>` with `equals`, `contains`, `starts-with`, `ends-with`, `matches` (glob), `truthy`/`not-truthy`
 - **Loops** -- `<t-for>` with sort, filter, limit/offset, `loop.first`/`loop.last`/`loop.length`, for-else
 - **Transforms** -- `upper`, `slugify`, `truncate:N`, `escape`, `js_escape`, `url_encode`, `join`, `split`, `int`, `float`, `decimal:N`, `bool`, `date:format`, and more (pipe-chained)
 - **Auto-coercion** -- integers, floats, and booleans render as strings automatically; no manual conversion needed
@@ -151,7 +151,7 @@ const html = try toupee.render(allocator, source, &ctx, resolver.loader(), .{});
 ## Build and Test
 
 ```
-zig build test    # over 470 tests (integration + unit)
+zig build test    # over 500 tests (integration + unit)
 zig build bench   # parse/render benchmarks (ReleaseFast)
 zig build fuzz    # fuzz testing for parser and renderer
 ```

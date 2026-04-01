@@ -316,3 +316,205 @@ major
 {"data": {}}
 <!-- out -->
 missing
+
+<!-- test: truthy - non-empty string -->
+<!-- in -->
+<t-if var="x" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+yes
+
+<!-- test: truthy - empty string is falsy -->
+<!-- in -->
+<t-if var="x" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"x": ""}}
+<!-- out -->
+no
+
+<!-- test: truthy - boolean true -->
+<!-- in -->
+<t-if var="flag" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"flag": true}}
+<!-- out -->
+yes
+
+<!-- test: truthy - boolean false is falsy -->
+<!-- in -->
+<t-if var="flag" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"flag": false}}
+<!-- out -->
+no
+
+<!-- test: truthy - integer zero is falsy -->
+<!-- in -->
+<t-if var="count" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"count": 0}}
+<!-- out -->
+no
+
+<!-- test: truthy - non-zero integer -->
+<!-- in -->
+<t-if var="count" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"count": 42}}
+<!-- out -->
+yes
+
+<!-- test: truthy - missing variable is falsy -->
+<!-- in -->
+<t-if var="x" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {}}
+<!-- out -->
+no
+
+<!-- test: not-truthy - boolean false -->
+<!-- in -->
+<t-if var="flag" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"flag": false}}
+<!-- out -->
+falsy
+
+<!-- test: not-truthy - non-empty string is truthy -->
+<!-- in -->
+<t-if var="x" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"x": "hello"}}
+<!-- out -->
+truthy
+
+<!-- test: not-truthy - missing variable -->
+<!-- in -->
+<t-if var="x" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {}}
+<!-- out -->
+falsy
+
+<!-- test: truthy with attr - non-empty -->
+<!-- in:comp.html -->
+<t-if attr="variant" truthy>styled<t-else />plain</t-if>
+<!-- in -->
+<t-include template="comp.html" variant="primary" />
+<!-- context -->
+<!-- out -->
+styled
+
+<!-- test: truthy with attr - empty string is falsy -->
+<!-- in:comp.html -->
+<t-if attr="variant" truthy>styled<t-else />plain</t-if>
+<!-- in -->
+<t-include template="comp.html" variant="" />
+<!-- context -->
+<!-- out -->
+plain
+
+<!-- test: truthy - non-empty list -->
+<!-- in -->
+<t-if var="items" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"items": [1, 2]}}
+<!-- out -->
+yes
+
+<!-- test: truthy - empty list is falsy -->
+<!-- in -->
+<t-if var="items" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"items": []}}
+<!-- out -->
+no
+
+<!-- test: truthy - non-empty map -->
+<!-- in -->
+<t-if var="meta" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"meta": {"key": "val"}}}
+<!-- out -->
+yes
+
+<!-- test: truthy - empty map is falsy -->
+<!-- in -->
+<t-if var="meta" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"meta": {}}}
+<!-- out -->
+no
+
+<!-- test: truthy - null is falsy -->
+<!-- in -->
+<t-if var="x" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"x": null}}
+<!-- out -->
+no
+
+<!-- test: truthy - non-zero float -->
+<!-- in -->
+<t-if var="ratio" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"ratio": 3.14}}
+<!-- out -->
+yes
+
+<!-- test: truthy - zero float is falsy -->
+<!-- in -->
+<t-if var="ratio" truthy>yes<t-else />no</t-if>
+<!-- context -->
+{"data": {"ratio": 0.0}}
+<!-- out -->
+no
+
+<!-- test: not-truthy - non-empty list is truthy -->
+<!-- in -->
+<t-if var="items" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"items": [1]}}
+<!-- out -->
+truthy
+
+<!-- test: not-truthy - empty list -->
+<!-- in -->
+<t-if var="items" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"items": []}}
+<!-- out -->
+falsy
+
+<!-- test: not-truthy - empty map -->
+<!-- in -->
+<t-if var="meta" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"meta": {}}}
+<!-- out -->
+falsy
+
+<!-- test: not-truthy - null -->
+<!-- in -->
+<t-if var="x" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"x": null}}
+<!-- out -->
+falsy
+
+<!-- test: not-truthy - zero float -->
+<!-- in -->
+<t-if var="ratio" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"ratio": 0.0}}
+<!-- out -->
+falsy
+
+<!-- test: not-truthy - non-zero float is truthy -->
+<!-- in -->
+<t-if var="ratio" not-truthy>falsy<t-else />truthy</t-if>
+<!-- context -->
+{"data": {"ratio": 1.5}}
+<!-- out -->
+truthy

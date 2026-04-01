@@ -783,6 +783,8 @@ fn parseComparison(tag: []const u8) N.Condition.Comparison {
     if (h.extractAttrValue(tag, "ends-with")) |val| return .{ .ends_with = val };
     if (h.extractAttrValue(tag, "matches")) |val| return .{ .matches = val };
     if (h.hasBoolAttr(tag, "not-exists")) return .not_exists;
+    if (h.hasBoolAttr(tag, "truthy")) return .truthy;
+    if (h.hasBoolAttr(tag, "not-truthy")) return .not_truthy;
     return .exists;
 }
 

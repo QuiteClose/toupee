@@ -133,6 +133,8 @@ Conditional rendering based on variable, attribute, or slot existence/value.
 <t-if var="x" equals="hello">exact match</t-if>
 <t-if var="x" not-equals="hello">not equal</t-if>
 <t-if var="x" not-exists>truly missing (empty string counts as existing)</t-if>
+<t-if var="x" truthy>value is truthy</t-if>
+<t-if var="x" not-truthy>value is falsy or missing</t-if>
 <t-if var="x" contains="needle">substring match</t-if>
 <t-if var="x" starts-with="/styles">prefix match</t-if>
 <t-if var="x" ends-with=".html">suffix match</t-if>
@@ -141,7 +143,7 @@ Conditional rendering based on variable, attribute, or slot existence/value.
 <t-if slot="sidebar">sidebar slot was defined</t-if>
 ```
 
-Existence semantics: `<t-if var="x">` is true if `x` is present, even if its value is an empty string. `not-exists` is true *only* when the variable is genuinely absent.
+Existence vs truthiness: `<t-if var="x">` is true if `x` is present, even if its value is an empty string or `false`. `not-exists` is true *only* when the variable is genuinely absent. `truthy` checks the value itself: non-empty strings, `true`, non-zero numbers, and non-empty lists/maps are truthy; empty strings, `false`, zero, empty collections, `nil`, and missing variables are falsy.
 
 === `<t-elif>` and `<t-else>`
 
