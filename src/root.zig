@@ -42,6 +42,7 @@ pub const Parser = @import("Parser.zig");
 pub const Renderer = @import("Renderer.zig");
 
 const format = @import("format.zig");
+const html = @import("html.zig");
 /// Transform registry and built-in transforms (upper, lower, truncate, etc.).
 pub const transform = @import("transform.zig");
 /// Validation diagnostic: template name, kind (err/warn), message.
@@ -252,9 +253,9 @@ pub const Engine = struct {
         try writer.writeAll(result);
     }
 
-    /// Walks cached template IR and reports problems (missing includes/extends, circular extend chains).
+    /// Walks cached template IR and reports problems (missing includes/extends).
     /// Checks both engine cache and loader. Call after loading all templates and before serving.
-    /// Returns diagnostics owned by `a`; caller must free.
+    /// Returns diagnostics owned by `a`; caller must free the slice and individual `.message` strings.
     pub fn validate(self: *const Engine, a: Allocator, loader: Loader) ![]const Diagnostic {
         var diags: std.ArrayListUnmanaged(Diagnostic) = .{};
         errdefer diags.deinit(a);
@@ -265,8 +266,8 @@ pub const Engine = struct {
         var cache_it = self.cache.iterator();
         while (cache_it.next()) |entry| {
             const tmpl_name = entry.key_ptr.*;
-            const nodes = entry.value_ptr.nodes;
-            try collectDiagnostics(a, loader_arena.allocator(), tmpl_name, nodes, self, loader, &diags);
+            const ce = entry.value_ptr.*;
+            try collectDiagnostics(a, loader_arena.allocator(), tmpl_name, ce.source, ce.nodes, self, loader, &diags);
         }
 
         return diags.toOwnedSlice(a);
@@ -276,6 +277,7 @@ pub const Engine = struct {
         a: Allocator,
         loader_a: Allocator,
         tmpl_name: []const u8,
+        source: []const u8,
         nodes: []const Node.Node,
         engine: *const Engine,
         loader: Loader,
@@ -285,37 +287,43 @@ pub const Engine = struct {
             switch (node) {
                 .include => |inc| {
                     if (engine.cache.get(inc.template) == null and (try loader.getSource(loader_a, inc.template)) == null) {
+                        const lc = html.computeLineCol(source, inc.source_pos);
                         try diags.append(a, .{
                             .template = tmpl_name,
                             .kind = .err,
-                            .message = inc.template,
+                            .message = try std.fmt.allocPrint(a, "missing include '{s}'", .{inc.template}),
+                            .line = lc.line,
+                            .column = lc.column,
                         });
                     }
-                    try collectDiagnostics(a, loader_a, tmpl_name, inc.anonymous_body, engine, loader, diags);
-                    for (inc.defines) |def| try collectDiagnostics(a, loader_a, tmpl_name, def.body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, source, inc.anonymous_body, engine, loader, diags);
+                    for (inc.defines) |def| try collectDiagnostics(a, loader_a, tmpl_name, source, def.body, engine, loader, diags);
                 },
                 .extend => |ext| {
                     if (engine.cache.get(ext.template) == null and (try loader.getSource(loader_a, ext.template)) == null) {
+                        const lc = html.computeLineCol(source, ext.source_pos);
                         try diags.append(a, .{
                             .template = tmpl_name,
                             .kind = .err,
-                            .message = ext.template,
+                            .message = try std.fmt.allocPrint(a, "missing extends '{s}'", .{ext.template}),
+                            .line = lc.line,
+                            .column = lc.column,
                         });
                     }
-                    for (ext.defines) |def| try collectDiagnostics(a, loader_a, tmpl_name, def.body, engine, loader, diags);
+                    for (ext.defines) |def| try collectDiagnostics(a, loader_a, tmpl_name, source, def.body, engine, loader, diags);
                 },
                 .conditional => |cond| {
-                    for (cond.branches) |branch| try collectDiagnostics(a, loader_a, tmpl_name, branch.body, engine, loader, diags);
-                    try collectDiagnostics(a, loader_a, tmpl_name, cond.else_body, engine, loader, diags);
+                    for (cond.branches) |branch| try collectDiagnostics(a, loader_a, tmpl_name, source, branch.body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, source, cond.else_body, engine, loader, diags);
                 },
                 .loop => |loop| {
-                    try collectDiagnostics(a, loader_a, tmpl_name, loop.body, engine, loader, diags);
-                    try collectDiagnostics(a, loader_a, tmpl_name, loop.else_body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, source, loop.body, engine, loader, diags);
+                    try collectDiagnostics(a, loader_a, tmpl_name, source, loop.else_body, engine, loader, diags);
                 },
-                .slot => |slot| try collectDiagnostics(a, loader_a, tmpl_name, slot.default_body, engine, loader, diags),
-                .variable => |v| try collectDiagnostics(a, loader_a, tmpl_name, v.default_body, engine, loader, diags),
-                .raw_variable => |v| try collectDiagnostics(a, loader_a, tmpl_name, v.default_body, engine, loader, diags),
-                .let_binding => |lb| try collectDiagnostics(a, loader_a, tmpl_name, lb.body, engine, loader, diags),
+                .slot => |slot| try collectDiagnostics(a, loader_a, tmpl_name, source, slot.default_body, engine, loader, diags),
+                .variable => |v| try collectDiagnostics(a, loader_a, tmpl_name, source, v.default_body, engine, loader, diags),
+                .raw_variable => |v| try collectDiagnostics(a, loader_a, tmpl_name, source, v.default_body, engine, loader, diags),
+                .let_binding => |lb| try collectDiagnostics(a, loader_a, tmpl_name, source, lb.body, engine, loader, diags),
                 else => {},
             }
         }
@@ -722,11 +730,16 @@ test "engine validate catches missing include" {
     try engine.addTemplate("page.html", "<t-include template=\"missing.html\" />");
     var resolver: Resolver = .{};
     const diags = try engine.validate(testing.allocator, resolver.loader());
-    defer testing.allocator.free(diags);
+    defer {
+        for (diags) |d| testing.allocator.free(d.message);
+        testing.allocator.free(diags);
+    }
     try testing.expectEqual(@as(usize, 1), diags.len);
-    try testing.expectEqualStrings("missing.html", diags[0].message);
+    try testing.expectEqualStrings("missing include 'missing.html'", diags[0].message);
     try testing.expectEqualStrings("page.html", diags[0].template);
     try testing.expect(diags[0].kind == .err);
+    try testing.expectEqual(@as(usize, 1), diags[0].line);
+    try testing.expectEqual(@as(usize, 1), diags[0].column);
 }
 
 test "engine validate catches missing extend" {
@@ -735,9 +748,16 @@ test "engine validate catches missing extend" {
     try engine.addTemplate("child.html", "<t-extend template=\"ghost.html\"><t-define slot=\"main\">hi</t-define></t-extend>");
     var resolver: Resolver = .{};
     const diags = try engine.validate(testing.allocator, resolver.loader());
-    defer testing.allocator.free(diags);
+    defer {
+        for (diags) |d| testing.allocator.free(d.message);
+        testing.allocator.free(diags);
+    }
     try testing.expectEqual(@as(usize, 1), diags.len);
-    try testing.expectEqualStrings("ghost.html", diags[0].message);
+    try testing.expectEqualStrings("missing extends 'ghost.html'", diags[0].message);
+    try testing.expectEqualStrings("child.html", diags[0].template);
+    try testing.expect(diags[0].kind == .err);
+    try testing.expectEqual(@as(usize, 1), diags[0].line);
+    try testing.expectEqual(@as(usize, 1), diags[0].column);
 }
 
 test "engine validate passes when templates exist in cache" {
@@ -769,9 +789,28 @@ test "engine validate finds nested missing include" {
     try engine.addTemplate("page.html", "<t-if var=\"show\"><t-include template=\"deep.html\" /></t-if>");
     var resolver: Resolver = .{};
     const diags = try engine.validate(testing.allocator, resolver.loader());
-    defer testing.allocator.free(diags);
+    defer {
+        for (diags) |d| testing.allocator.free(d.message);
+        testing.allocator.free(diags);
+    }
     try testing.expectEqual(@as(usize, 1), diags.len);
-    try testing.expectEqualStrings("deep.html", diags[0].message);
+    try testing.expectEqualStrings("missing include 'deep.html'", diags[0].message);
+}
+
+test "engine validate reports line and column for missing include" {
+    var engine = try Engine.init(testing.allocator);
+    defer engine.deinit();
+    try engine.addTemplate("page.html", "<header>nav</header>\n<t-include template=\"sidebar.html\" />\n<footer />");
+    var resolver: Resolver = .{};
+    const diags = try engine.validate(testing.allocator, resolver.loader());
+    defer {
+        for (diags) |d| testing.allocator.free(d.message);
+        testing.allocator.free(diags);
+    }
+    try testing.expectEqual(@as(usize, 1), diags.len);
+    try testing.expectEqualStrings("missing include 'sidebar.html'", diags[0].message);
+    try testing.expectEqual(@as(usize, 2), diags[0].line);
+    try testing.expectEqual(@as(usize, 1), diags[0].column);
 }
 
 test "engine validate empty cache returns no diagnostics" {
