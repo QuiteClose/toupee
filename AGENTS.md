@@ -270,7 +270,7 @@ External `.test` files in `test/`, loaded at runtime by `test_runner.zig`. HTML 
 
 Context JSON: `"data"` for variables (nested maps/lists/strings), `"templates"` for named templates available via include/extend.
 
-Over 470 tests across integration `.test` files and unit tests in source modules.
+Run `zig build test` to execute all integration `.test` files and unit tests.
 
 ## Build Commands
 
