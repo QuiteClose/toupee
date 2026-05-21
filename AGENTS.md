@@ -277,7 +277,7 @@ Run `zig build test` to execute all integration `.test` files and unit tests.
 ```
 zig build test    # all tests (unit + integration)
 zig build fuzz    # fuzz testing (Parser + Renderer)
-zig build bench   # benchmarks (ReleaseFast)
+zig build bench   # performance smoke test (ReleaseFast, silent on success)
 zig build         # library + CLI stub
 ```
 

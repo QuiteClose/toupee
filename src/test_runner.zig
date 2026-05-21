@@ -400,12 +400,16 @@ test "toupee test suite" {
 
         const dot_pos = std.mem.lastIndexOfScalar(u8, filename, '.') orelse filename.len;
         const name = filename[0..dot_pos];
-        std.debug.print("  {s}: {d}/{d} passed\n", .{ name, results.passed, results.total() });
+        if (results.failed > 0) {
+            std.debug.print("  {s}: {d}/{d} passed\n", .{ name, results.passed, results.total() });
+        }
         if (results.failed > 0) any_failed = true;
         total.add(results);
     }
 
-    std.debug.print("\n  Total: {d}/{d} passed\n\n", .{ total.passed, total.total() });
+    if (total.failed > 0) {
+        std.debug.print("\n  Total: {d}/{d} passed\n\n", .{ total.passed, total.total() });
+    }
 
     if (any_failed) return error.TestSuiteFailure;
 }

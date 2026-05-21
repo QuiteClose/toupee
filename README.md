@@ -152,7 +152,7 @@ const html = try toupee.render(allocator, source, &ctx, resolver.loader(), .{});
 
 ```
 zig build test    # over 500 tests (integration + unit)
-zig build bench   # parse/render benchmarks (ReleaseFast)
+zig build bench   # performance smoke test (ReleaseFast, silent on success)
 zig build fuzz    # fuzz testing for parser and renderer
 ```
 

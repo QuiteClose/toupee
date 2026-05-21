@@ -60,11 +60,7 @@ fn benchParse(a: std.mem.Allocator, io: std.Io) !void {
         result.deinit();
     }
     const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
-    const ns_per_op = elapsed_ns / iterations;
-    std.debug.print("  parse:          {d} ns/op ({d} ops/sec)\n", .{
-        ns_per_op,
-        if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
-    });
+    _ = elapsed_ns / iterations;
 }
 
 fn benchRender(a: std.mem.Allocator, io: std.Io, nodes: []const @import("Node.zig").Node, ctx: *const Ctx.Context) !void {
@@ -76,11 +72,7 @@ fn benchRender(a: std.mem.Allocator, io: std.Io, nodes: []const @import("Node.zi
         a.free(result);
     }
     const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
-    const ns_per_op = elapsed_ns / iterations;
-    std.debug.print("  render:         {d} ns/op ({d} ops/sec)\n", .{
-        ns_per_op,
-        if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
-    });
+    _ = elapsed_ns / iterations;
 }
 
 fn benchCachedRender(a: std.mem.Allocator, io: std.Io, ctx: *const Ctx.Context) !void {
@@ -95,11 +87,7 @@ fn benchCachedRender(a: std.mem.Allocator, io: std.Io, ctx: *const Ctx.Context) 
         a.free(result);
     }
     const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
-    const ns_per_op = elapsed_ns / iterations;
-    std.debug.print("  cached render:  {d} ns/op ({d} ops/sec)\n", .{
-        ns_per_op,
-        if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
-    });
+    _ = elapsed_ns / iterations;
 }
 
 fn benchFullPipeline(a: std.mem.Allocator, io: std.Io, ctx: *const Ctx.Context) !void {
@@ -111,17 +99,12 @@ fn benchFullPipeline(a: std.mem.Allocator, io: std.Io, ctx: *const Ctx.Context) 
         a.free(result);
     }
     const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
-    const ns_per_op = elapsed_ns / iterations;
-    std.debug.print("  full pipeline:  {d} ns/op ({d} ops/sec)\n", .{
-        ns_per_op,
-        if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
-    });
+    _ = elapsed_ns / iterations;
 }
 
 test "benchmark suite" {
     const a = std.testing.allocator;
     const io = std.testing.io;
-    std.debug.print("\n--- Toupee Benchmarks ---\n", .{});
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -137,6 +120,4 @@ test "benchmark suite" {
 
     try benchCachedRender(a, io, &ctx);
     try benchFullPipeline(a, io, &ctx);
-
-    std.debug.print("--- End Benchmarks ---\n\n", .{});
 }

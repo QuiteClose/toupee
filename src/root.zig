@@ -990,5 +990,4 @@ test {
     _ = @import("FileSystemLoader.zig");
     _ = @import("ChainLoader.zig");
     _ = @import("fuzz.zig");
-    _ = @import("bench.zig");
 }
