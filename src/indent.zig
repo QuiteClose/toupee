@@ -80,7 +80,7 @@ pub fn stripCommonIndent(a: Allocator, content: []const u8) RenderError!IndentRe
 }
 
 fn splitLines(a: Allocator, content: []const u8) !std.ArrayList([]const u8) {
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     var line_start: usize = 0;
     var j: usize = 0;
     while (j <= content.len) : (j += 1) {
@@ -121,7 +121,7 @@ fn findMinIndent(lines: []const []const u8) usize {
 }
 
 fn joinLinesStripped(a: Allocator, lines: []const []const u8, strip: usize) RenderError![]const u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(a);
     for (lines, 0..) |line, idx| {
         if (idx > 0) try out.append(a, '\n');
@@ -160,7 +160,7 @@ test "detectIndent: no trailing whitespace after newline" {
 
 test "appendIndented: empty content strips trailing ws" {
     const a = testing.allocator;
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     defer out.deinit(a);
     try out.appendSlice(a, "hello\n    ");
     try appendIndented(a, &out, "", "    ");
@@ -169,7 +169,7 @@ test "appendIndented: empty content strips trailing ws" {
 
 test "appendIndented: no indent passes through" {
     const a = testing.allocator;
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     defer out.deinit(a);
     try appendIndented(a, &out, "line1\nline2", "");
     try testing.expectEqualStrings("line1\nline2", out.items);
@@ -177,7 +177,7 @@ test "appendIndented: no indent passes through" {
 
 test "appendIndented: applies indent to subsequent lines" {
     const a = testing.allocator;
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     defer out.deinit(a);
     try appendIndented(a, &out, "line1\nline2\nline3", "  ");
     try testing.expectEqualStrings("line1\n  line2\n  line3", out.items);
@@ -185,7 +185,7 @@ test "appendIndented: applies indent to subsequent lines" {
 
 test "appendIndented: empty lines get no indent" {
     const a = testing.allocator;
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     defer out.deinit(a);
     try appendIndented(a, &out, "a\n\nb", "  ");
     try testing.expectEqualStrings("a\n\n  b", out.items);

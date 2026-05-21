@@ -56,7 +56,7 @@ pub const ErrorDetail = struct {
 
     /// Produces a human-readable error message with location and include stack.
     pub fn formatError(self: *const ErrorDetail, a: Allocator) Allocator.Error![]const u8 {
-        var buf: std.ArrayListUnmanaged(u8) = .{};
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
         try writeHeader(a, &buf, self.kind, self.message, self.source_file);
         if (self.source_file.len > 0 and self.line > 0)
             try writeLocation(a, &buf, self.source_file, self.line, self.column);

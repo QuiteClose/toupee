@@ -145,3 +145,39 @@ HELLO
 <!-- context -->
 <!-- out -->
 1-2-3
+
+<!-- test: t-include inside anonymous slot body -->
+<!-- in:panel.html -->
+<div class="panel"><t-slot /></div>
+<!-- in:inner.html -->
+<p>inner content</p>
+<!-- in -->
+<t-include template="panel.html"><t-include template="inner.html" /></t-include>
+<!-- context -->
+<!-- out -->
+<div class="panel"><p>inner content</p></div>
+
+<!-- test: t-include inside named slot define -->
+<!-- in:panel.html -->
+<div class="panel"><t-slot name="body" /></div>
+<!-- in:inner.html -->
+<p>inner content</p>
+<!-- in -->
+<t-include template="panel.html">
+<t-define name="body"><t-include template="inner.html" /></t-define>
+</t-include>
+<!-- context -->
+<!-- out -->
+<div class="panel"><p>inner content</p></div>
+
+<!-- test: t-include inside slot body with data context -->
+<!-- in:drawer.html -->
+<div class="drawer"><t-slot /></div>
+<!-- in:flow.html -->
+<ul><t-for item in items><li><t-var name="item" /></li></t-for></ul>
+<!-- in -->
+<t-include template="drawer.html"><t-include template="flow.html" /></t-include>
+<!-- context -->
+{"data": {"items": ["a", "b"]}}
+<!-- out -->
+<div class="drawer"><ul><li>a</li><li>b</li></ul></div>

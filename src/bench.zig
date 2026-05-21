@@ -52,66 +52,66 @@ fn buildContext(a: std.mem.Allocator) !Ctx.Context {
     return ctx;
 }
 
-fn benchParse(a: std.mem.Allocator) !void {
+fn benchParse(a: std.mem.Allocator, io: std.Io) !void {
     const iterations = 1000;
-    var timer = try std.time.Timer.start();
+    const start_ts = std.Io.Clock.awake.now(io);
     for (0..iterations) |_| {
         var result = try Parser.parse(a, template_source, .{});
         result.deinit();
     }
-    const elapsed = timer.read();
-    const ns_per_op = elapsed / iterations;
+    const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
+    const ns_per_op = elapsed_ns / iterations;
     std.debug.print("  parse:          {d} ns/op ({d} ops/sec)\n", .{
         ns_per_op,
         if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
     });
 }
 
-fn benchRender(a: std.mem.Allocator, nodes: []const @import("Node.zig").Node, ctx: *const Ctx.Context) !void {
+fn benchRender(a: std.mem.Allocator, io: std.Io, nodes: []const @import("Node.zig").Node, ctx: *const Ctx.Context) !void {
     const iterations = 1000;
     var resolver: Ctx.Resolver = .{};
-    var timer = try std.time.Timer.start();
+    const start_ts = std.Io.Clock.awake.now(io);
     for (0..iterations) |_| {
         const result = try Renderer.render(a, nodes, ctx, resolver.loader(), .{});
         a.free(result);
     }
-    const elapsed = timer.read();
-    const ns_per_op = elapsed / iterations;
+    const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
+    const ns_per_op = elapsed_ns / iterations;
     std.debug.print("  render:         {d} ns/op ({d} ops/sec)\n", .{
         ns_per_op,
         if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
     });
 }
 
-fn benchCachedRender(a: std.mem.Allocator, ctx: *const Ctx.Context) !void {
+fn benchCachedRender(a: std.mem.Allocator, io: std.Io, ctx: *const Ctx.Context) !void {
     const iterations = 1000;
     var engine = try toupee.Engine.init(a);
     defer engine.deinit();
     try engine.addTemplate("bench.html", template_source);
     var resolver: Ctx.Resolver = .{};
-    var timer = try std.time.Timer.start();
+    const start_ts = std.Io.Clock.awake.now(io);
     for (0..iterations) |_| {
         const result = try engine.renderTemplate(a, "bench.html", ctx, resolver.loader(), .{});
         a.free(result);
     }
-    const elapsed = timer.read();
-    const ns_per_op = elapsed / iterations;
+    const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
+    const ns_per_op = elapsed_ns / iterations;
     std.debug.print("  cached render:  {d} ns/op ({d} ops/sec)\n", .{
         ns_per_op,
         if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
     });
 }
 
-fn benchFullPipeline(a: std.mem.Allocator, ctx: *const Ctx.Context) !void {
+fn benchFullPipeline(a: std.mem.Allocator, io: std.Io, ctx: *const Ctx.Context) !void {
     const iterations = 1000;
     var resolver: Ctx.Resolver = .{};
-    var timer = try std.time.Timer.start();
+    const start_ts = std.Io.Clock.awake.now(io);
     for (0..iterations) |_| {
         const result = try toupee.render(a, template_source, ctx, resolver.loader(), .{});
         a.free(result);
     }
-    const elapsed = timer.read();
-    const ns_per_op = elapsed / iterations;
+    const elapsed_ns: u64 = @intCast(start_ts.durationTo(std.Io.Clock.awake.now(io)).nanoseconds);
+    const ns_per_op = elapsed_ns / iterations;
     std.debug.print("  full pipeline:  {d} ns/op ({d} ops/sec)\n", .{
         ns_per_op,
         if (ns_per_op > 0) @as(u64, 1_000_000_000) / ns_per_op else 0,
@@ -120,6 +120,7 @@ fn benchFullPipeline(a: std.mem.Allocator, ctx: *const Ctx.Context) !void {
 
 test "benchmark suite" {
     const a = std.testing.allocator;
+    const io = std.testing.io;
     std.debug.print("\n--- Toupee Benchmarks ---\n", .{});
 
     var arena = std.heap.ArenaAllocator.init(a);
@@ -128,14 +129,14 @@ test "benchmark suite" {
 
     var ctx = try buildContext(aa);
 
-    try benchParse(a);
+    try benchParse(a, io);
 
     var parse_result = try Parser.parse(a, template_source, .{});
     defer parse_result.deinit();
-    try benchRender(a, parse_result.nodes, &ctx);
+    try benchRender(a, io, parse_result.nodes, &ctx);
 
-    try benchCachedRender(a, &ctx);
-    try benchFullPipeline(a, &ctx);
+    try benchCachedRender(a, io, &ctx);
+    try benchFullPipeline(a, io, &ctx);
 
     std.debug.print("--- End Benchmarks ---\n\n", .{});
 }

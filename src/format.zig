@@ -26,7 +26,7 @@ fn extractTagName(tag: []const u8) ?[]const u8 {
 /// Post-render HTML pretty-printer. Reformats rendered HTML with consistent
 /// 2-space indentation. Operates on the final output string.
 pub fn prettyPrint(a: Allocator, input: []const u8) RenderError![]u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(a);
 
     var depth: usize = 0;

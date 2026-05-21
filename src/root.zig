@@ -192,11 +192,11 @@ pub const Engine = struct {
     /// the template cache. Template names are paths relative to `base_path`
     /// (e.g. `"layouts/page.html"`). Files are loaded in sorted order for
     /// deterministic results. Setup-phase only; not thread-safe.
-    pub fn loadFromDirectory(self: *Engine, base_path: []const u8, extension: []const u8) !void {
-        var dir = try std.fs.cwd().openDir(base_path, .{ .iterate = true });
-        defer dir.close();
+    pub fn loadFromDirectory(self: *Engine, io: std.Io, base_path: []const u8, extension: []const u8) !void {
+        var dir = try std.Io.Dir.openDir(std.Io.Dir.cwd(), io, base_path, .{ .iterate = true });
+        defer dir.close(io);
 
-        var paths: std.ArrayListUnmanaged([]const u8) = .{};
+        var paths: std.ArrayListUnmanaged([]const u8) = .empty;
         defer {
             for (paths.items) |p| self.allocator.free(p);
             paths.deinit(self.allocator);
@@ -204,7 +204,7 @@ pub const Engine = struct {
 
         var walker = try dir.walk(self.allocator);
         defer walker.deinit();
-        while (try walker.next()) |entry| {
+        while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.basename, extension)) continue;
             try paths.append(self.allocator, try self.allocator.dupe(u8, entry.path));
@@ -217,7 +217,7 @@ pub const Engine = struct {
         }.lessThan);
 
         for (paths.items) |rel_path| {
-            const contents = try dir.readFileAlloc(self.allocator, rel_path, FileSystemLoader.max_template_size);
+            const contents = try std.Io.Dir.readFileAlloc(dir, io, rel_path, self.allocator, .limited(FileSystemLoader.max_template_size));
             defer self.allocator.free(contents);
             try self.addTemplate(rel_path, contents);
         }
@@ -257,7 +257,7 @@ pub const Engine = struct {
     /// Checks both engine cache and loader. Call after loading all templates and before serving.
     /// Returns diagnostics owned by `a`; caller must free the slice and individual `.message` strings.
     pub fn validate(self: *const Engine, a: Allocator, loader: Loader) ![]const Diagnostic {
-        var diags: std.ArrayListUnmanaged(Diagnostic) = .{};
+        var diags: std.ArrayListUnmanaged(Diagnostic) = .empty;
         errdefer diags.deinit(a);
 
         var loader_arena = std.heap.ArenaAllocator.init(a);
@@ -683,10 +683,10 @@ test "engine renderTemplateToWriter equivalence" {
     const buffered = try engine.renderTemplate(testing.allocator, "greet.html", &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
 
-    var out: std.ArrayListUnmanaged(u8) = .{};
-    defer out.deinit(testing.allocator);
-    try engine.renderTemplateToWriter(testing.allocator, "greet.html", &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
-    try testing.expectEqualStrings(buffered, out.items);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try engine.renderTemplateToWriter(testing.allocator, "greet.html", &ctx, resolver.loader(), .{}, &out.writer);
+    try testing.expectEqualStrings(buffered, out.written());
 }
 
 test "engine renderToWriter equivalence" {
@@ -701,10 +701,10 @@ test "engine renderToWriter equivalence" {
     const buffered = try engine.render(testing.allocator, source, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
 
-    var out: std.ArrayListUnmanaged(u8) = .{};
-    defer out.deinit(testing.allocator);
-    try engine.renderToWriter(testing.allocator, source, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
-    try testing.expectEqualStrings(buffered, out.items);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try engine.renderToWriter(testing.allocator, source, &ctx, resolver.loader(), .{}, &out.writer);
+    try testing.expectEqualStrings(buffered, out.written());
 }
 
 test "engine renderFormattedToWriter equivalence" {
@@ -718,10 +718,10 @@ test "engine renderFormattedToWriter equivalence" {
     const buffered = try engine.renderFormatted(testing.allocator, source, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
 
-    var out: std.ArrayListUnmanaged(u8) = .{};
-    defer out.deinit(testing.allocator);
-    try engine.renderFormattedToWriter(testing.allocator, source, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
-    try testing.expectEqualStrings(buffered, out.items);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try engine.renderFormattedToWriter(testing.allocator, source, &ctx, resolver.loader(), .{}, &out.writer);
+    try testing.expectEqualStrings(buffered, out.written());
 }
 
 test "engine validate catches missing include" {
@@ -823,18 +823,19 @@ test "engine validate empty cache returns no diagnostics" {
 }
 
 test "engine validate frees loader-allocated sources" {
+    const io = testing.io;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    tmp.dir.writeFile(.{ .sub_path = "nav.html", .data = "<nav>links</nav>" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "nav.html", .data = "<nav>links</nav>" }) catch unreachable;
 
-    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", testing.allocator);
     defer testing.allocator.free(path);
 
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
     try engine.addTemplate("page.html", "<t-include template=\"nav.html\" />");
 
-    const fsl = FileSystemLoader{ .base_path = path };
+    const fsl = FileSystemLoader{ .base_path = path, .io = io };
     const diags = try engine.validate(testing.allocator, fsl.loader());
     defer testing.allocator.free(diags);
     try testing.expectEqual(@as(usize, 0), diags.len);
@@ -869,18 +870,19 @@ test "comptime validateTemplate accepts valid templates" {
 }
 
 test "engine loadFromDirectory loads matching files" {
+    const io = testing.io;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    tmp.dir.writeFile(.{ .sub_path = "header.html", .data = "<header>H</header>" }) catch unreachable;
-    tmp.dir.writeFile(.{ .sub_path = "footer.html", .data = "<footer>F</footer>" }) catch unreachable;
-    tmp.dir.writeFile(.{ .sub_path = "nav.html", .data = "<nav>N</nav>" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "header.html", .data = "<header>H</header>" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "footer.html", .data = "<footer>F</footer>" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "nav.html", .data = "<nav>N</nav>" }) catch unreachable;
 
-    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", testing.allocator);
     defer testing.allocator.free(path);
 
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
-    try engine.loadFromDirectory(path, ".html");
+    try engine.loadFromDirectory(io, path, ".html");
 
     var ctx = Context.init(testing.allocator);
     defer ctx.deinit();
@@ -899,18 +901,19 @@ test "engine loadFromDirectory loads matching files" {
 }
 
 test "engine loadFromDirectory filters by extension" {
+    const io = testing.io;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    tmp.dir.writeFile(.{ .sub_path = "page.html", .data = "<p>yes</p>" }) catch unreachable;
-    tmp.dir.writeFile(.{ .sub_path = "style.css", .data = "body {}" }) catch unreachable;
-    tmp.dir.writeFile(.{ .sub_path = "data.json", .data = "{}" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "page.html", .data = "<p>yes</p>" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "style.css", .data = "body {}" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "data.json", .data = "{}" }) catch unreachable;
 
-    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", testing.allocator);
     defer testing.allocator.free(path);
 
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
-    try engine.loadFromDirectory(path, ".html");
+    try engine.loadFromDirectory(io, path, ".html");
 
     var ctx = Context.init(testing.allocator);
     defer ctx.deinit();
@@ -924,18 +927,19 @@ test "engine loadFromDirectory filters by extension" {
 }
 
 test "engine loadFromDirectory nested subdirectories" {
+    const io = testing.io;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    tmp.dir.makePath("layouts/default") catch unreachable;
-    tmp.dir.writeFile(.{ .sub_path = "layouts/base.html", .data = "base" }) catch unreachable;
-    tmp.dir.writeFile(.{ .sub_path = "layouts/default/page.html", .data = "page" }) catch unreachable;
+    std.Io.Dir.createDirPath(tmp.dir, io, "layouts/default") catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "layouts/base.html", .data = "base" }) catch unreachable;
+    std.Io.Dir.writeFile(tmp.dir, io, .{ .sub_path = "layouts/default/page.html", .data = "page" }) catch unreachable;
 
-    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", testing.allocator);
     defer testing.allocator.free(path);
 
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
-    try engine.loadFromDirectory(path, ".html");
+    try engine.loadFromDirectory(io, path, ".html");
 
     var ctx = Context.init(testing.allocator);
     defer ctx.deinit();
@@ -951,23 +955,25 @@ test "engine loadFromDirectory nested subdirectories" {
 }
 
 test "engine loadFromDirectory empty directory" {
+    const io = testing.io;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", testing.allocator);
     defer testing.allocator.free(path);
 
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
-    try engine.loadFromDirectory(path, ".html");
+    try engine.loadFromDirectory(io, path, ".html");
 
     try testing.expectEqual(@as(usize, 0), engine.cache.count());
 }
 
 test "engine loadFromDirectory non-existent directory" {
+    const io = testing.io;
     var engine = try Engine.init(testing.allocator);
     defer engine.deinit();
-    const result = engine.loadFromDirectory("/tmp/toupee-nonexistent-dir-test", ".html");
+    const result = engine.loadFromDirectory(io, "/tmp/toupee-nonexistent-dir-test", ".html");
     try testing.expect(std.meta.isError(result));
 }
 

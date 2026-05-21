@@ -126,7 +126,7 @@ fn renderNodes(state: State, nodes: []const Node, ctx: *Context, depth: usize) R
         return error.CircularReference;
     }
 
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     for (nodes) |node| {
         switch (node) {
             .text => |text| try out.appendSlice(state.a, text),
@@ -869,10 +869,10 @@ test "renderToWriter matches render for text" {
     var resolver: Resolver = .{};
     const buffered = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
-    var out: std.ArrayListUnmanaged(u8) = .{};
-    defer out.deinit(testing.allocator);
-    try renderToWriter(testing.allocator, &nodes, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
-    try testing.expectEqualStrings(buffered, out.items);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try renderToWriter(testing.allocator, &nodes, &ctx, resolver.loader(), .{}, &out.writer);
+    try testing.expectEqualStrings(buffered, out.written());
 }
 
 test "renderToWriter matches render for mixed nodes" {
@@ -898,10 +898,10 @@ test "renderToWriter matches render for mixed nodes" {
 
     const buffered = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
-    var out: std.ArrayListUnmanaged(u8) = .{};
-    defer out.deinit(testing.allocator);
-    try renderToWriter(testing.allocator, &nodes, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
-    try testing.expectEqualStrings(buffered, out.items);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try renderToWriter(testing.allocator, &nodes, &ctx, resolver.loader(), .{}, &out.writer);
+    try testing.expectEqualStrings(buffered, out.written());
 }
 
 test "renderToWriter matches render with let binding" {
@@ -916,10 +916,10 @@ test "renderToWriter matches render with let binding" {
 
     const buffered = try render(testing.allocator, &nodes, &ctx, resolver.loader(), .{});
     defer testing.allocator.free(buffered);
-    var out: std.ArrayListUnmanaged(u8) = .{};
-    defer out.deinit(testing.allocator);
-    try renderToWriter(testing.allocator, &nodes, &ctx, resolver.loader(), .{}, out.writer(testing.allocator));
-    try testing.expectEqualStrings(buffered, out.items);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try renderToWriter(testing.allocator, &nodes, &ctx, resolver.loader(), .{}, &out.writer);
+    try testing.expectEqualStrings(buffered, out.written());
 }
 
 // Layout newline after `<t-slot />` is consumed in Parser.parseSlot so it is not a text node.

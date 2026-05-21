@@ -9,7 +9,10 @@ pub const std_options: std.Options = .{
 
 test "fuzz parser does not crash" {
     try std.testing.fuzz({}, struct {
-        fn run(_: void, input: []const u8) anyerror!void {
+        fn run(_: void, smith: *std.testing.Smith) anyerror!void {
+            var buf: [4096]u8 = undefined;
+            const len = smith.sliceWithHash(&buf, @src().line);
+            const input = buf[0..len];
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
             const a = arena.allocator();
@@ -33,7 +36,10 @@ test "fuzz parser does not crash" {
 
 test "fuzz renderer does not crash" {
     try std.testing.fuzz({}, struct {
-        fn run(_: void, input: []const u8) anyerror!void {
+        fn run(_: void, smith: *std.testing.Smith) anyerror!void {
+            var buf: [4096]u8 = undefined;
+            const len = smith.sliceWithHash(&buf, @src().line);
+            const input = buf[0..len];
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
             const a = arena.allocator();

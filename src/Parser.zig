@@ -97,7 +97,7 @@ fn parseExtend(state: ParseState, input: []const u8, offset: usize) ParseError![
     };
 
     const result = try parseDefines(state, input[tag_end + 1 ..], offset + tag_end + 1);
-    var nodes: std.ArrayList(Node) = .{};
+    var nodes: std.ArrayList(Node) = .empty;
     try nodes.append(state.a, .{ .extend = .{
         .template = template_name,
         .defines = result.defines,
@@ -109,7 +109,7 @@ fn parseExtend(state: ParseState, input: []const u8, offset: usize) ParseError![
 // ---- Content parsing ----
 
 fn parseContent(state: ParseState, input: []const u8, offset: usize) ParseError![]const Node {
-    var nodes: std.ArrayList(Node) = .{};
+    var nodes: std.ArrayList(Node) = .empty;
     var text_start: usize = 0;
     var i: usize = 0;
 
@@ -595,7 +595,7 @@ fn parseBranches(state: ParseState, if_tag: []const u8, full_body: []const u8, b
     branches: []const N.Branch,
     else_body: []const Node,
 } {
-    var branches: std.ArrayList(N.Branch) = .{};
+    var branches: std.ArrayList(N.Branch) = .empty;
     const first_sep = findConditionalSeparator(full_body, 0);
     const if_body_source = if (first_sep) |sep| full_body[0..sep.pos] else full_body;
     try branches.append(state.a, .{
@@ -632,7 +632,7 @@ fn parseBranches(state: ParseState, if_tag: []const u8, full_body: []const u8, b
 }
 
 fn parseBoundTag(state: ParseState, tag: []const u8, nodes: *std.ArrayList(Node), tag_offset: usize) ParseError!void {
-    var segments: std.ArrayList(N.Segment) = .{};
+    var segments: std.ArrayList(N.Segment) = .empty;
     var literal_start: usize = 0;
     var i: usize = 0;
 
@@ -699,9 +699,9 @@ fn startsWithDefineOpen(input: []const u8) bool {
 
 fn parseDefines(state: ParseState, body: []const u8, body_offset: usize) ParseError!DefineResult {
     const define_close = comptime closeTag("define");
-    var defines: std.ArrayList(N.Define) = .{};
-    var seen_names: std.ArrayList([]const u8) = .{};
-    var anon_parts: std.ArrayList(u8) = .{};
+    var defines: std.ArrayList(N.Define) = .empty;
+    var seen_names: std.ArrayList([]const u8) = .empty;
+    var anon_parts: std.ArrayList(u8) = .empty;
     var i: usize = 0;
 
     while (i < body.len) {
@@ -796,14 +796,14 @@ fn parseTransformAttr(state: ParseState, tag: []const u8) ParseError![]const N.T
 }
 
 fn parseTransformSpec(state: ParseState, spec: []const u8) ParseError![]const N.TransformStep {
-    var steps: std.ArrayList(N.TransformStep) = .{};
+    var steps: std.ArrayList(N.TransformStep) = .empty;
     var pipe_iter = std.mem.splitScalar(u8, spec, '|');
 
     while (pipe_iter.next()) |xform| {
         if (xform.len == 0) continue;
         var colon_iter = std.mem.splitScalar(u8, xform, ':');
         const name = colon_iter.next().?;
-        var args: std.ArrayList([]const u8) = .{};
+        var args: std.ArrayList([]const u8) = .empty;
         while (colon_iter.next()) |arg| try args.append(state.a, arg);
         try steps.append(state.a, .{ .name = name, .args = try args.toOwnedSlice(state.a) });
     }
@@ -812,7 +812,7 @@ fn parseTransformSpec(state: ParseState, spec: []const u8) ParseError![]const N.
 }
 
 fn parseTagAttrList(state: ParseState, tag: []const u8) ParseError![]const N.Attr {
-    var attrs: std.ArrayList(N.Attr) = .{};
+    var attrs: std.ArrayList(N.Attr) = .empty;
     var i: usize = 1;
     while (i < tag.len and tag[i] != ' ' and tag[i] != '/' and tag[i] != '>') : (i += 1) {}
 
@@ -851,7 +851,7 @@ fn isReservedAttr(name: []const u8) bool {
 fn parseContextBindings(state: ParseState, spec: ?[]const u8) ParseError![]const N.ContextBinding {
     const raw = spec orelse return &.{};
     if (raw.len == 0) return &.{};
-    var bindings: std.ArrayList(N.ContextBinding) = .{};
+    var bindings: std.ArrayList(N.ContextBinding) = .empty;
     var iter = std.mem.splitScalar(u8, raw, ',');
     while (iter.next()) |entry| {
         const trimmed = std.mem.trim(u8, entry, " ");

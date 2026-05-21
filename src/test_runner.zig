@@ -23,7 +23,7 @@ const TestResults = struct {
 
 const TestCase = struct {
     name: []const u8,
-    templates: std.ArrayListUnmanaged(Template) = .{},
+    templates: std.ArrayListUnmanaged(Template) = .empty,
     input: ?[]const u8 = null,
     context_json: ?[]const u8 = null,
     expected_output: ?[]const u8 = null,
@@ -41,12 +41,12 @@ const Template = struct {
 
 const Section = enum { none, in_named, in_anon, context, out };
 
-pub fn runTestFile(a: Allocator, dir: std.fs.Dir, filename: []const u8) !TestResults {
-    const content = try dir.readFileAlloc(a, filename, 1024 * 1024);
+pub fn runTestFile(a: Allocator, io: std.Io, dir: std.Io.Dir, filename: []const u8) !TestResults {
+    const content = try std.Io.Dir.readFileAlloc(dir, io, filename, a, .limited(1024 * 1024));
     defer a.free(content);
 
     var results = TestResults{};
-    var cases: std.ArrayListUnmanaged(TestCase) = .{};
+    var cases: std.ArrayListUnmanaged(TestCase) = .empty;
     defer {
         for (cases.items) |*c| c.templates.deinit(a);
         cases.deinit(a);
@@ -377,11 +377,12 @@ const test_file_names = [_][]const u8{
 };
 
 test "toupee test suite" {
-    var test_dir = std.fs.cwd().openDir("test", .{}) catch |err| {
+    const io = std.testing.io;
+    var test_dir = std.Io.Dir.openDir(std.Io.Dir.cwd(), io, "test", .{}) catch |err| {
         std.debug.print("\nCould not open test directory: {}\n", .{err});
         return err;
     };
-    defer test_dir.close();
+    defer test_dir.close(io);
 
     var total = TestResults{};
     var any_failed = false;
@@ -390,7 +391,7 @@ test "toupee test suite" {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
 
-        const results = runTestFile(arena.allocator(), test_dir, filename) catch |err| {
+        const results = runTestFile(arena.allocator(), io, test_dir, filename) catch |err| {
             std.debug.print("  {s}: ERROR ({})\n", .{ filename, err });
             total.failed += 1;
             any_failed = true;

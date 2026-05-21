@@ -80,7 +80,7 @@ pub fn trimTransform(a: Allocator, value: []const u8, _: []const []const u8) Ren
 }
 
 pub fn slugify(a: Allocator, value: []const u8, _: []const []const u8) RenderError![]u8 {
-    var result: std.ArrayList(u8) = .{};
+    var result: std.ArrayList(u8) = .empty;
     var prev_hyphen = true;
     for (value) |c| {
         if (std.ascii.isAlphanumeric(c)) {
@@ -105,7 +105,7 @@ pub fn replaceTransform(a: Allocator, value: []const u8, args: []const []const u
     if (args.len < 1) return error.MalformedElement;
     const old = args[0];
     const new = if (args.len > 1) args[1] else "";
-    var result: std.ArrayList(u8) = .{};
+    var result: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < value.len) {
         if (old.len > 0 and i + old.len <= value.len and std.mem.eql(u8, value[i .. i + old.len], old)) {
@@ -144,7 +144,7 @@ pub fn ceilTransform(a: Allocator, value: []const u8, _: []const []const u8) Ren
 }
 
 pub fn escapeTransform(a: Allocator, value: []const u8, _: []const []const u8) RenderError![]u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     for (value) |c| switch (c) {
         '&' => try out.appendSlice(a, "&amp;"),
         '<' => try out.appendSlice(a, "&lt;"),
@@ -157,7 +157,7 @@ pub fn escapeTransform(a: Allocator, value: []const u8, _: []const []const u8) R
 }
 
 pub fn urlEncode(a: Allocator, value: []const u8, _: []const []const u8) RenderError![]u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     for (value) |c| {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '.' or c == '_' or c == '~') {
             try out.append(a, c);
@@ -171,7 +171,7 @@ pub fn urlEncode(a: Allocator, value: []const u8, _: []const []const u8) RenderE
 }
 
 pub fn urlDecode(a: Allocator, value: []const u8, _: []const []const u8) RenderError![]u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < value.len) {
         if (value[i] == '%' and i + 2 < value.len) {
@@ -190,7 +190,7 @@ pub fn urlDecode(a: Allocator, value: []const u8, _: []const []const u8) RenderE
 }
 
 pub fn jsEscape(a: Allocator, value: []const u8, _: []const []const u8) RenderError![]u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < value.len) {
         switch (value[i]) {
@@ -223,7 +223,7 @@ pub fn jsEscape(a: Allocator, value: []const u8, _: []const []const u8) RenderEr
 
 pub fn joinTransform(a: Allocator, value: []const u8, args: []const []const u8) RenderError![]u8 {
     const sep = if (args.len > 0) args[0] else " ";
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     var first = true;
     var it = std.mem.splitScalar(u8, value, '\n');
     while (it.next()) |line| {
@@ -238,7 +238,7 @@ pub fn splitTransform(a: Allocator, value: []const u8, args: []const []const u8)
     if (args.len == 0) return error.MalformedElement;
     const sep = args[0];
     if (sep.len == 0) return a.dupe(u8, value);
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     var first = true;
     while (i < value.len) {
@@ -417,7 +417,7 @@ fn dayOfWeek(year: u16, month: u8, day: u8) u3 {
 }
 
 fn formatDate(a: Allocator, d: DateParts, fmt: []const u8) Allocator.Error![]u8 {
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < fmt.len) {
         if (fmt[i] == '%' and i + 1 < fmt.len) {
